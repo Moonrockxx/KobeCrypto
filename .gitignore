@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+
+# Secrets / env
+.env
+
+# Données locales (ne jamais committer)
+data/
+logs/
+*.csv
+*.jsonl
+*.sqlite*
+*.db
+
+# Outils / OS
+.vscode/
+.DS_Store
+.ipynb_checkpoints/
