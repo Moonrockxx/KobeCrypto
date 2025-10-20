@@ -1,0 +1,9 @@
+# Config v0 (minimal) — conforme SOP
+capital: 1000.0
+risk_pct: 0.005                 # 0,5 % du capital max à risque
+pairs: ["BTCUSDT","ETHUSDT","ALTUSDT"]   # ALTUSDT sera précisé (sélection en fin v0/v1)
+scan_window:
+  start: "08:00"
+  end:  "22:00"
+  tz:   "Europe/Paris"
+log_dir: "data/logs"
