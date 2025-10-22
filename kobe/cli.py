@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 import argparse, sys, subprocess, json
+from kobe import __version__
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    # --- DEMO ---
     if args.demo:
         if not args.json_only:
             print("[cli] mode démo: appel de `python -m kobe.strategy.v0_breakout`")
             print("[cli] attendu: premier run -> Signal; second run -> None (clamp 1/jour).")
         return subprocess.call([sys.executable, "-m", "kobe.strategy.v0_breakout"])
 
+    # --- LIVE ---
     if args.live:
         from kobe.core.feed import subscribe_agg_trade
         from kobe.core.bars import AggToBars1m
@@ -53,6 +56,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
                 decide_demo_once(); decide_real_once()
 
         def stop_after(_t):
+            # on quitte après décision et au moins N barres
             return printed["n"] >= args.bars and printed["decided"]
 
         if not args.json_only:
@@ -74,13 +78,11 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
         print("Je ne sais pas. Fournis un signal JSON via stdin (ex: `kobe scan --demo --json-only | kobe paper-fill --equity 10000`).")
         return 1
     if data == "None":
-        print("None")
-        return 0
+        print("None"); return 0
     try:
         sig = json.loads(data)
     except Exception:
-        print("Je ne sais pas. Entrée non-JSON.")
-        return 1
+        print("Je ne sais pas. Entrée non-JSON."); return 1
 
     cfg = load_config(args.config) if args.config else {}
     symbol = sig.get("symbol")
@@ -89,20 +91,15 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
     stop   = float(sig.get("stop"))
     risk_pct = float(sig.get("risk_pct", cfg.get("risk_pct", 0.5)))
 
-    equity = args.equity
+    equity = args.equity if args.equity is not None else cfg.get("equity")
     if equity is None:
-        equity = cfg.get("equity")
-    if equity is None:
-        print("Je ne sais pas. Fournis --equity ou un config.yaml avec `equity:`.")
-        return 1
+        print("Je ne sais pas. Fournis --equity ou un config.yaml avec `equity:`."); return 1
     equity = float(equity)
-
     sl_bps = args.slippage_bps if args.slippage_bps is not None else cfg.get("slippage_bps", 2)
     sl_bps = int(sl_bps)
 
     if side not in ("long","short"):
-        print("Je ne sais pas. side attendu: long|short.")
-        return 1
+        print("Je ne sais pas. side attendu: long|short."); return 1
 
     qty, risk_amount = size_for_risk(equity, risk_pct, entry, stop, lot_step=0.001)
     slip = sl_bps / 10000.0
@@ -121,7 +118,9 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kobe", description="KobeCrypto CLI v0")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    # Flag global --version (avant sous-commande)
+    p.add_argument("--version", action="store_true", help="Affiche la version et quitte.")
+    sub = p.add_subparsers(dest="cmd", required=False)  # plus 'required=True' pour permettre --version seul
 
     p_scan = sub.add_parser("scan", help="Scan du marché et éventuelle émission d’un signal (≤ 1/jour).")
     p_scan.add_argument("--demo", action="store_true", help="Exécute la démo intégrée de la stratégie v0.")
@@ -145,8 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
         from kobe.core.journal import JSONL_PATH
         pth = JSONL_PATH
         if not pth.exists():
-            print("Je ne sais pas. Aucun journal encore.")
-            return
+            print("Je ne sais pas. Aucun journal encore."); return
         for ln in pth.read_text(encoding="utf-8").splitlines()[-a.tail:]:
             print(ln)
     p_log.set_defaults(func=_show)
@@ -154,11 +152,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     parser = build_parser()
+    # parse une première fois les flags globaux
+    known, _ = parser.parse_known_args(argv)
+    if getattr(known, "version", False):
+        print(__version__); return 0
+    # parse complet
     args = parser.parse_args(argv)
+    if getattr(args, "version", False):
+        print(__version__); return 0
     if hasattr(args, "func"):
-        ret = args.func(args)
-        return ret if isinstance(ret, int) else 0
+        ret = args.func(args); return ret if isinstance(ret, int) else 0
     parser.print_help(); return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
