@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-kobe.core.feed — WebSocket public Binance Spot (démo aggTrade).
-- Demo: --demo => souscrit à btcusdt@aggTrade, imprime 10 ticks puis ferme.
-- Base WSS: wss://stream.binance.com:9443/ws/<stream>
+kobe.core.feed — WebSocket public Binance Spot (aggTrade).
+- Demo: --demo => souscrit à <symbol>@aggTrade, imprime des ticks puis ferme.
+- API: subscribe_agg_trade(symbol, limit=None, on_tick=None, stop_after=None)
+       - limit: nombre max de ticks (si fourni)
+       - stop_after(tick)->bool: si True, ferme immédiatement (prioritaire)
 """
 import argparse, json, ssl
 from dataclasses import dataclass
@@ -28,7 +30,10 @@ def parse_agg_trade(msg: dict) -> Tick:
         is_buyer_maker=bool(msg["m"]),
     )
 
-def subscribe_agg_trade(symbol: str, limit: int = 10, on_tick: Optional[Callable[[Tick], None]] = None):
+def subscribe_agg_trade(symbol: str,
+                        limit: Optional[int] = None,
+                        on_tick: Optional[Callable[[Tick], None]] = None,
+                        stop_after: Optional[Callable[[Tick], bool]] = None):
     stream = f"{symbol.lower()}@aggTrade"
     url = f"{BASE}/{stream}"
     counter = {"n": 0}
@@ -45,7 +50,12 @@ def subscribe_agg_trade(symbol: str, limit: int = 10, on_tick: Optional[Callable
         tick = parse_agg_trade(msg)
         on_tick(tick)
         counter["n"] += 1
-        if counter["n"] >= limit:
+        # arrêt conditionnel prioritaire
+        if stop_after and stop_after(tick):
+            print("[feed] stop_after triggered, closing.")
+            ws.close()
+            return
+        if (limit is not None) and (counter["n"] >= limit):
             print("[feed] limit reached, closing.")
             ws.close()
 
@@ -62,14 +72,13 @@ def subscribe_agg_trade(symbol: str, limit: int = 10, on_tick: Optional[Callable
         on_error=_on_error,
         on_close=_on_close,
     )
-    # Certs requis par défaut ; on garde la vérification active
     ws.run_forever(sslopt={"cert_reqs": ssl.CERT_REQUIRED})
 
 def main():
     ap = argparse.ArgumentParser(description="Binance aggTrade demo")
-    ap.add_argument("--demo", action="store_true", help="Souscrit à aggTrade et imprime 10 ticks.")
+    ap.add_argument("--demo", action="store_true", help="Souscrit à aggTrade et imprime des ticks.")
     ap.add_argument("--symbol", default="BTCUSDT", help="Symbole spot (ex: BTCUSDT).")
-    ap.add_argument("--limit", type=int, default=10, help="Nombre de ticks à imprimer avant fermeture.")
+    ap.add_argument("--limit", type=int, default=10, help="Nombre de ticks à imprimer avant fermeture (démo).")
     args = ap.parse_args()
 
     if args.demo:
