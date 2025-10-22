@@ -1,5 +1,19 @@
-# Fichier d'exemple pour Kobe v0 — à copier en config.yaml (non versionné)
-equity: 10000        # capital pour paper-fill
-slippage_bps: 2      # 100 bps = 1%
-risk_pct: 0.5        # risque par trade (%)
-symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+# Exemple de configuration KobeCrypto (paper only)
+# Copiez en config.yaml pour surcharger localement (ne jamais committer config.yaml)
+
+# Capital de référence pour le sizing (paper)
+equity: 10000          # en USD
+risk_pct: 0.5          # % du capital risqué par trade
+slippage_bps: 2        # 1 bps = 0,01 %
+
+# Marchés surveillés (données publiques)
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+
+# Pas minimum de quantité (utile pour le sizing papier, si besoin)
+lot_step: 0.001
+
+# Dossier des journaux
+logs_dir: logs
