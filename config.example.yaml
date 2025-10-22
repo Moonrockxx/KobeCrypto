@@ -1,0 +1,5 @@
+# Fichier d'exemple pour Kobe v0 — à copier en config.yaml (non versionné)
+equity: 10000        # capital pour paper-fill
+slippage_bps: 2      # 100 bps = 1%
+risk_pct: 0.5        # risque par trade (%)
+symbols: [BTCUSDT, ETHUSDT, SOLUSDT]

@@ -2,15 +2,12 @@
 import argparse, sys, subprocess, json
 
 def cmd_scan(args: argparse.Namespace) -> int:
-    # --- DEMO ---
     if args.demo:
-        # En mode json-only, on ne parle pas : on ne sort que la ligne JSON/None de la démo
         if not args.json_only:
             print("[cli] mode démo: appel de `python -m kobe.strategy.v0_breakout`")
             print("[cli] attendu: premier run -> Signal; second run -> None (clamp 1/jour).")
         return subprocess.call([sys.executable, "-m", "kobe.strategy.v0_breakout"])
 
-    # --- LIVE ---
     if args.live:
         from kobe.core.feed import subscribe_agg_trade
         from kobe.core.bars import AggToBars1m
@@ -26,10 +23,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
             if not args.json_only:
                 print("[cli] decision: DEMO stratégie v0 (≤1 signal/jour, 3 raisons, stop)")
             rc = subprocess.call([sys.executable, "-m", "kobe.strategy.v0_breakout"])
-            append_event({
-                "type":"decision","source":"decide-demo","symbol":args.symbol,
-                "result":"signal" if rc==0 else "none"
-            })
+            append_event({"type":"decision","source":"decide-demo","symbol":args.symbol,
+                          "result":"signal" if rc==0 else "none"})
             printed["decided"] = True
 
         def decide_real_once():
@@ -51,18 +46,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
         def on_tick(t):
             bar = agg.on_tick(t)
             if bar:
-                payload = {
-                    "type": "bar1m", "symbol": bar.symbol, "ts_open": bar.ts_open,
-                    "o": bar.o, "h": bar.h, "l": bar.l, "c": bar.c, "v": bar.v,
-                }
+                payload = {"type":"bar1m","symbol":bar.symbol,"ts_open":bar.ts_open,
+                           "o":bar.o,"h":bar.h,"l":bar.l,"c":bar.c,"v":bar.v}
                 print(json.dumps(payload, ensure_ascii=False))
-                bars.append(bar)
-                printed["n"] += 1
-                decide_demo_once()
-                decide_real_once()
+                bars.append(bar); printed["n"] += 1
+                decide_demo_once(); decide_real_once()
 
         def stop_after(_t):
-            # arrêter après décision et au moins N barres
             return printed["n"] >= args.bars and printed["decided"]
 
         if not args.json_only:
@@ -77,6 +67,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 def cmd_paper_fill(args: argparse.Namespace) -> int:
     from kobe.core.journal import append_event
     from kobe.core.sizing import size_for_risk
+    from kobe.core.config import load_config
 
     data = sys.stdin.read().strip()
     if not data:
@@ -91,13 +82,23 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
         print("Je ne sais pas. Entrée non-JSON.")
         return 1
 
+    cfg = load_config(args.config) if args.config else {}
     symbol = sig.get("symbol")
     side   = sig.get("side")
     entry  = float(sig.get("entry"))
     stop   = float(sig.get("stop"))
-    risk_pct = float(sig.get("risk_pct", 0.5))
-    equity   = float(args.equity)
-    sl_bps   = int(args.slippage_bps)
+    risk_pct = float(sig.get("risk_pct", cfg.get("risk_pct", 0.5)))
+
+    equity = args.equity
+    if equity is None:
+        equity = cfg.get("equity")
+    if equity is None:
+        print("Je ne sais pas. Fournis --equity ou un config.yaml avec `equity:`.")
+        return 1
+    equity = float(equity)
+
+    sl_bps = args.slippage_bps if args.slippage_bps is not None else cfg.get("slippage_bps", 2)
+    sl_bps = int(sl_bps)
 
     if side not in ("long","short"):
         print("Je ne sais pas. side attendu: long|short.")
@@ -109,10 +110,10 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
     max_loss_est = qty * abs(entry - stop)
 
     out = {
-        "type":"paper","source":"paper-fill","symbol": symbol,"side": side,
-        "entry": round(entry, 8),"stop": round(stop, 8),"risk_pct": risk_pct,
-        "equity": equity,"qty": round(qty, 8),"fill_entry": round(fill_entry, 8),
-        "slippage_bps": sl_bps,"max_loss_est": round(max_loss_est, 8),
+        "type":"paper","source":"paper-fill","symbol":symbol,"side":side,
+        "entry":round(entry,8),"stop":round(stop,8),"risk_pct":risk_pct,
+        "equity":equity,"qty":round(qty,8),"fill_entry":round(fill_entry,8),
+        "slippage_bps":sl_bps,"max_loss_est":round(max_loss_est,8),
     }
     print(json.dumps(out, ensure_ascii=False))
     append_event(out)
@@ -133,8 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.set_defaults(func=cmd_scan)
 
     p_pf = sub.add_parser("paper-fill", help="Simule l’exécution (entrée/stop/TP) à partir d’un signal JSON via stdin.")
-    p_pf.add_argument("--equity", type=float, required=True, help="Capital total (ex: 10000).")
-    p_pf.add_argument("--slippage-bps", type=int, default=2, help="Glissement en points de base (100 bps = 1%).")
+    p_pf.add_argument("--equity", type=float, required=False, help="Capital total (ex: 10000). Si absent, lit la config.")
+    p_pf.add_argument("--slippage-bps", type=int, default=None, help="Glissement en bps (100 bps = 1%). Si absent, lit la config.")
+    p_pf.add_argument("--config", default="config.yaml", help="Chemin du fichier de config YAML.")
     p_pf.set_defaults(func=cmd_paper_fill)
 
     p_log = sub.add_parser("show-log", help="Affiche les derniers enregistrements du journal.")
@@ -145,8 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
         if not pth.exists():
             print("Je ne sais pas. Aucun journal encore.")
             return
-        lines = pth.read_text(encoding="utf-8").splitlines()
-        for ln in lines[-a.tail:]:
+        for ln in pth.read_text(encoding="utf-8").splitlines()[-a.tail:]:
             print(ln)
     p_log.set_defaults(func=_show)
     return p
@@ -157,8 +158,7 @@ def main(argv=None) -> int:
     if hasattr(args, "func"):
         ret = args.func(args)
         return ret if isinstance(ret, int) else 0
-    parser.print_help()
-    return 0
+    parser.print_help(); return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
