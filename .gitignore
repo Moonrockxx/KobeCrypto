@@ -9,8 +9,8 @@ __pycache__/
 .env
 
 # Données locales (ne jamais committer)
-data/
-logs/
+data/*
+logs/*
 *.csv
 *.jsonl
 *.sqlite*
