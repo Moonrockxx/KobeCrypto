@@ -1,62 +1,33 @@
-# KobeCrypto — MVP v0 (paper only)
+# KobeCrypto — Version minimale (paper trading)
 
-Projet éducatif minimal pour produire **≤ 1 signal/jour** (BTCUSDT, ETHUSDT + 1 altcoin), **explicable (3 raisons)**, avec **stop obligatoire** et **risque 0,5 %/trade**.  
-**Aucune promesse de gain.** Usage pédagogique uniquement.
-
----
-
-## Objectif v0 (abrégé)
-
-- **Flux marché public** via WebSocket Binance.
-- **Agrégation** ticks → barres 1m.
-- **Stratégie** “breakout de contraction” (ATR14 en contraction + cassure HH/LL_20 + volume relatif ≥ 1.5×).
-- **Clamp**: au plus **1 signal/jour**.
-- **Sizing** par risque monétaire (**0,5 %**) dépendant du **stop**.
-- **Paper trading** (remplissage simulé).
-- **Journal** CSV/JSONL.
-- **CLI**: `scan`, `paper-fill`, `show-log`.
-- **2 tests unitaires**.
-- **README** et **.gitignore**.  
-> Aucun secret committé.
+KobeCrypto est un petit outil qui **propose au maximum 1 idée de trade par jour** sur le Bitcoin, l’Ether et une petite altcoin.  
+C’est **100 % papier** (simulation) : on observe, on comprend, on apprend — pas d’argent réel.
 
 ---
 
-## Prérequis
+## Comment ça marche (en clair)
+1. Le programme **regarde le marché en temps réel** et attend des moments où **le prix se resserre** puis **part franchement** (cassure d’un côté).
+2. S’il y a un setup propre, il **propose 1 signal** : sens (achat/vente), **prix d’entrée**, **stop** (niveau de sécurité) et **risque 0,5 %**.
+3. Ce signal peut être **rempli en papier** (simulation), et **enregistré** dans un journal pour suivi.
 
-- macOS / Linux, Python **3.10+** (recommandé 3.11), `git`.
-- Accès internet pour le flux public Binance (pas de clé API).
-- Terminal avec `bash`/`zsh`.
+> **Important** : il y a **au plus 1 signal par jour**. Souvent, il n’y en a **aucun** — c’est volontaire.
 
 ---
 
-## Installation (≈ 5 minutes)
+## Installation rapide (macOS / Linux)
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Si besoin pour les tests / imports locaux :
-export PYTHONPATH=$PWD
-
-# Préparer un YAML local (non versionné) :
-cp -n config.example.yaml config.yaml 2>/dev/null || true
 ```
-> **Hygiène Git** : ne jamais committer `config.yaml`, `logs/`, `*.csv`, `*.jsonl`, `.env`, `data/`.
+
+C’est tout. Aucune clé API à fournir pour commencer.
 
 ---
 
-## Configuration rapide (`config.yaml`)
-
-- Définir (au besoin) : `equity`, `risk_pct`, `slippage_bps`, `lot_step`, etc.
-- Ce fichier **n’est pas versionné** (voir `.gitignore`).  
-Le binaire `paper-fill` peut lire ces valeurs si elles ne sont pas passées en CLI.
-
----
-
-## Commandes rapides (démo)
-
-La démo produit au premier run un signal JSON puis **`None`** ensuite (à cause du **clamp** journalier).
+## Premier essai (démo, données intégrées)
+Affiche un exemple de signal (ou "None") sans toucher au marché réel.
 
 ```bash
 python -m kobe.cli scan --demo --json-only
@@ -64,98 +35,68 @@ python -m kobe.cli scan --demo --json-only
 
 ---
 
-## Live & décision (réelle v0)
-
-Accumule `N` barres 1m en live, applique la logique **vraie** (contraction + breakout + volume relatif), puis émet un signal **ou** `None`.
+## En “vrai” (live, marché public)
+Regarde le flux en direct et décide s’il y a un signal aujourd’hui.
 
 ```bash
-# Exemple : 20 barres, décision réelle, sortie stricte JSON/None
-python -m kobe.cli scan --live --bars 20 --decide-real --json-only
-```
-
-**Sortie signal (exemple)** :
-```json
-{
-  "symbol": "BTCUSDT",
-  "side": "long",
-  "entry": 64350.0,
-  "stop": 63500.0,
-  "risk_pct": 0.5,
-  "reasons": [
-    "ATR14 en contraction",
-    "Cassure HH_20",
-    "Volume relatif >= 1.5x"
-  ]
-}
+python -m kobe.cli scan --live --bars 20 --json-only
+# Astuce : il est normal d'obtenir "None" la plupart du temps.
 ```
 
 ---
 
-## Pipeline → paper trading
-
-`paper-fill` lit un signal **depuis `stdin`**, calcule la **quantité** pour 0,5 % de risque, applique le **slippage** et **journalise** l’ordre papier.
-
-```bash
-# 1) Démo → fill papier
-python -m kobe.cli scan --demo --json-only | python -m kobe.cli paper-fill --config config.yaml
-
-# 2) Réel → fill papier
-python -m kobe.cli scan --live --bars 20 --decide-real --json-only | python -m kobe.cli paper-fill --config config.yaml
-```
+## Interpréter la sortie
+- **"None"** : pas de signal aujourd’hui → on ne fait rien.
+- **Un petit JSON** (ex.) :
+  ```json
+  {
+    "symbol": "BTCUSDT",
+    "side": "long",
+    "entry": 64350.0,
+    "stop": 63500.0,
+    "risk_pct": 0.5,
+    "reasons": [
+      "Prix resserré puis cassure",
+      "Rupture du range récent",
+      "Volume suffisant"
+    ]
+  }
+  ```
+  - **side** : sens ("long" = achat, "short" = vente)
+  - **entry** : prix proposé
+  - **stop** : filet de sécurité si le marché va contre nous
+  - **risk_pct** : part du capital mise en jeu sur l’idée (ici **0,5 %**)
+  - **reasons** : 3 raisons simples qui expliquent le signal
 
 ---
 
-## Journal & audit
+## Paper trading (simulation) : quoi faire
+1) **Remplir** la proposition en papier (calcule la quantité, applique le stop, et journalise) :
+```bash
+python -m kobe.cli scan --demo --json-only | python -m kobe.cli paper-fill
+# ou avec le live :
+# python -m kobe.cli scan --live --bars 20 --json-only | python -m kobe.cli paper-fill
+```
 
-- Fichiers : `logs/journal.jsonl` et `logs/journal.csv`.
-- Chaque évènement (décision `signal/none`, `paper` fill, etc.) est écrit avec horodatage.
-
+2) **Lire le journal** (ce qui a été simulé) :
 ```bash
 python -m kobe.cli show-log --tail 10
 ```
 
----
-
-## Tests unitaires
-
-```bash
-pytest -q
-```
-> En cas de `ModuleNotFoundError: kobe`, activer la venv et/ou :  
-> `export PYTHONPATH=$PWD`
+3) **Ce que vous ne faites pas** : pas d’ordre réel sur un échange. Le but est d’apprendre la logique et le suivi **sans risque**.
 
 ---
 
-## Explicabilité (pourquoi c’est solide)
-
-1. **≤ 1 signal/jour** : le clamp empêche le sur-trading.
-2. **3 raisons par signal** : contraction ATR, cassure de range (HH/LL_20), volume relatif.
-3. **Stop obligatoire** + **sizing 0,5 %** : la perte maximale est bornée par design.
-4. **Journal persistant** (CSV/JSONL) : audit simple, traçabilité A→Z.
-
----
-
-## FAQ courte
-
-- **« Rien ne sort en live » ?** Normal si conditions non réunies **ou** si un signal a déjà été émis aujourd’hui (clamp).
-- **« ImportError sur `kobe` » ?** Venv + `export PYTHONPATH=$PWD`.
-- **« Secrets ? »** Aucun requis. Ne **jamais** committer `config.yaml` ni les logs/data.
+## Rappels utiles
+- **≤ 1 signal/jour** (il est normal d’avoir "None").
+- **Stop toujours présent** et **risque fixe 0,5 %** pour cadrer la perte potentielle.
+- **Aucune promesse de gain**. Projet éducatif uniquement.
+- Évitez de publier vos fichiers locaux de configuration ou de journaux sur internet.
 
 ---
 
 ## Version
-
-Vérifier que l’export de version fonctionne des deux côtés :
-
 ```bash
 python -m kobe.cli --version
-python -m kobe --version
 ```
-> Attendu : `0.0.1`
 
----
-
-## Licence & disclaimer
-
-Usage **éducatif** uniquement. Aucune promesse de performance ni de gain.  
-© 2025 KobeCrypto contributors. Voir `LICENSE` si présent.
