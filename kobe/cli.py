@@ -2,10 +2,9 @@
 """
 kobe.cli — CLI v0
 Subcommandes: scan, paper-fill, show-log.
-Cette version ajoute `scan --live`:
-- souscrit au flux aggTrade Binance
-- agrège en barres 1m
-- imprime 1 barre 1m en JSON puis s'arrête (test minimal)
+Ajouts:
+- scan --live : WS aggTrade -> barres 1m -> imprime des barres
+- scan --live --decide : après impression d'1 barre, appelle la démo stratégie v0 (≤1 signal/jour)
 """
 import argparse
 import sys
@@ -23,7 +22,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
         from kobe.core.bars import AggToBars1m
 
         agg = AggToBars1m(args.symbol)
-        printed = {"n": 0}
+        printed = {"n": 0, "decided": False}
+
+        def decide_once():
+            if not args.decide or printed["decided"]:
+                return
+            print("[cli] decision: DEMO stratégie v0 (≤1 signal/jour, 3 raisons, stop)")
+            # On réutilise la démo existante, qui gère le clamp quotidien.
+            subprocess.call([sys.executable, "-m", "kobe.strategy.v0_breakout"])
+            printed["decided"] = True
 
         def on_tick(t):
             bar = agg.on_tick(t)
@@ -34,17 +41,17 @@ def cmd_scan(args: argparse.Namespace) -> int:
                     "ts_open": bar.ts_open,
                     "o": bar.o, "h": bar.h, "l": bar.l, "c": bar.c, "v": bar.v,
                 }
-                print(json.dumps(payload))
+                print(json.dumps(payload, ensure_ascii=False))
                 printed["n"] += 1
+                decide_once()
 
         def stop_after(_t):
             return printed["n"] >= args.bars
 
-        print(f"[cli] live: {args.symbol} → agrégation 1m ; target bars={args.bars}")
+        print(f"[cli] live: {args.symbol} → agrégation 1m ; target bars={args.bars} ; decide={args.decide}")
         subscribe_agg_trade(args.symbol, limit=None, on_tick=on_tick, stop_after=stop_after)
         return 0
 
-    # Pont WS→maybe_signal (décision) sera branché juste après ce test minimal.
     print("Je ne sais pas (scan live non demandé). Utilise `--live` ou `--demo`.")
     return 0
 
@@ -55,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan = sub.add_parser("scan", help="Scan du marché et éventuelle émission d’un signal (≤ 1/jour).")
     p_scan.add_argument("--demo", action="store_true", help="Exécute la démo intégrée de la stratégie v0.")
     p_scan.add_argument("--live", action="store_true", help="Consomme le WS aggTrade et agrège en barres 1m.")
+    p_scan.add_argument("--decide", action="store_true", help="Après 1 barre, appelle la démo stratégie v0 (signal ou None).")
     p_scan.add_argument("--symbol", default="BTCUSDT", help="Symbole spot (ex: BTCUSDT/ETHUSDT/SOLUSDT).")
     p_scan.add_argument("--bars", type=int, default=1, help="Nombre de barres 1m à imprimer avant d'arrêter.")
     p_scan.set_defaults(func=cmd_scan)
