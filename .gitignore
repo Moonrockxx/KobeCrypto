@@ -23,3 +23,6 @@ logs/*
 config.yaml
 !logs/.gitkeep
 !data/.gitkeep
+config/config.yaml
+logs/
+data/
