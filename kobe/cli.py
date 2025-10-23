@@ -5,10 +5,29 @@ from kobe import __version__
 def cmd_scan(args: argparse.Namespace) -> int:
     # --- DEMO ---
     if args.demo:
-        if not args.json_only:
-            print("[cli] mode démo: appel de `python -m kobe.strategy.v0_breakout`")
-            print("[cli] attendu: premier run -> Signal; second run -> None (clamp 1/jour).")
-        return subprocess.call([sys.executable, "-m", "kobe.strategy.v0_breakout"])
+        # demo JSON déterministe (v0)
+        import json, datetime as dt
+        from kobe.core.config import load_config
+        cfg = load_config(getattr(args, "config", None))
+        strat = cfg.get("strategy", {})
+        symbols = strat.get("symbols", ["BTCUSDT","ETHUSDT","SOLUSDT"])
+        symbol = symbols[0] if symbols else "BTCUSDT"
+        entry, stop = 60000.0, 59400.0
+        sig = {
+            "ts": dt.datetime.utcnow().replace(microsecond=0).isoformat()+"Z",
+            "symbol": symbol,
+            "side": "LONG",
+            "entry": entry,
+            "stop":  stop,
+            "risk_pct": cfg.get("account", {}).get("risk_pct", 0.5),
+            "reasons": [
+                "Breakout après contraction (lookback=20)",
+                "Alignement MTF basique (démo)",
+                "Stop ATR*1.0 respecté (obligatoire)"
+            ],
+        }
+        print(json.dumps(sig, ensure_ascii=False))
+        return 0
 
     # --- LIVE ---
     if args.live:
@@ -81,28 +100,44 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
         print("None"); return 0
     try:
         sig = json.loads(data)
+        # normalize side early
+        _side = str(sig.get("side", getattr(args, "side", ""))).strip().lower()
+        if _side:
+            sig["side"] = _side
     except Exception:
         print("Je ne sais pas. Entrée non-JSON."); return 1
 
-    cfg = load_config(args.config) if args.config else {}
+    cfg = load_config(args.config)
+    acc = (cfg or {}).get("account", {})
+    ex  = (cfg or {}).get("execution", {})
     symbol = sig.get("symbol")
-    side   = sig.get("side")
+    side   = (sig.get("side") or "").strip().lower()
+
     entry  = float(sig.get("entry"))
     stop   = float(sig.get("stop"))
-    risk_pct = float(sig.get("risk_pct", cfg.get("risk_pct", 0.5)))
+    acc = cfg.get("account", {})
+    ex  = cfg.get("execution", {})
+    risk_pct = float(sig.get("risk_pct", acc.get("risk_pct", 0.5)))
+    # normalisation risk_pct: accepte fraction (<=0.05) => pourcentage
+    if risk_pct <= 0.05:
+        risk_pct *= 100.0
 
-    equity = args.equity if args.equity is not None else cfg.get("equity")
+    equity = float(args.equity) if args.equity is not None else float(acc.get("equity", 10000.0))
+    lot_step = float(getattr(args, "lot_step", ex.get("lot_step", 0.001)))
+    sl_arg = getattr(args, "slippage_bps", None)
+    slippage_bps = int(sl_arg) if sl_arg is not None else int(ex.get("slippage_bps", 2))
     if equity is None:
-        print("Je ne sais pas. Fournis --equity ou un config.yaml avec `equity:`."); return 1
+        equity = 10000.0  # fallback v0 si non défini dans la config
     equity = float(equity)
-    sl_bps = args.slippage_bps if args.slippage_bps is not None else cfg.get("slippage_bps", 2)
-    sl_bps = int(sl_bps)
+    slippage_bps = args.slippage_bps if args.slippage_bps is not None else ex.get("slippage_bps", 2)
+    slippage_bps = int(slippage_bps)
 
+    side = str(side).strip().lower()
     if side not in ("long","short"):
         print("Je ne sais pas. side attendu: long|short."); return 1
 
-    qty, risk_amount = size_for_risk(equity, risk_pct, entry, stop, lot_step=0.001)
-    slip = sl_bps / 10000.0
+    qty, risk_amount = size_for_risk(equity, risk_pct, entry, stop, lot_step=float(ex.get("lot_step", 0.001)))
+    slip = slippage_bps / 10000.0
     fill_entry = entry * (1.0 + slip) if side == "long" else entry * (1.0 - slip)
     max_loss_est = qty * abs(entry - stop)
 
@@ -110,7 +145,7 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
         "type":"paper","source":"paper-fill","symbol":symbol,"side":side,
         "entry":round(entry,8),"stop":round(stop,8),"risk_pct":risk_pct,
         "equity":equity,"qty":round(qty,8),"fill_entry":round(fill_entry,8),
-        "slippage_bps":sl_bps,"max_loss_est":round(max_loss_est,8),
+        "slippage_bps":slippage_bps,"max_loss_est":round(max_loss_est,8),
     }
     print(json.dumps(out, ensure_ascii=False))
     append_event(out)
@@ -134,8 +169,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_pf = sub.add_parser("paper-fill", help="Simule l’exécution (entrée/stop/TP) à partir d’un signal JSON via stdin.")
     p_pf.add_argument("--equity", type=float, required=False, help="Capital total (ex: 10000). Si absent, lit la config.")
-    p_pf.add_argument("--slippage-bps", type=int, default=None, help="Glissement en bps (100 bps = 1%). Si absent, lit la config.")
-    p_pf.add_argument("--config", default="config.yaml", help="Chemin du fichier de config YAML.")
+    p_pf.add_argument("--slippage-bps", type=int, default=None, help="Glissement en bps (100 bps = 1%%). Si absent, lit la config.")
+    p_pf.add_argument("--config", default="config/config.yaml", help="Chemin du fichier de config YAML.")
     p_pf.set_defaults(func=cmd_paper_fill)
 
     p_log = sub.add_parser("show-log", help="Affiche les derniers enregistrements du journal.")
@@ -166,5 +201,4 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
