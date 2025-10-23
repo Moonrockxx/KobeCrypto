@@ -175,6 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_log = sub.add_parser("show-log", help="Affiche les derniers enregistrements du journal.")
     p_log.add_argument("--tail", type=int, default=10, help="Nombre de lignes à afficher depuis la fin du journal.")
+    p_log.add_argument("--pnl-today", action="store_true", help="Afficher le PnL du jour.")
     def _show(a):
         from kobe.core.journal import JSONL_PATH
         pth = JSONL_PATH
