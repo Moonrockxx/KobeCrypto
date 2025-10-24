@@ -7,12 +7,31 @@ import subprocess
 import json
 
 from kobe import __version__
-
+from kobe.core.clamp import emitted_signal_today
 
 # -----------------------------
 # scan
 # -----------------------------
 def cmd_scan(args: argparse.Namespace) -> int:
+    # CLAMP: si un signal a déjà été émis aujourd'hui → on renvoie None immédiatement
+    if emitted_signal_today():
+        # journaliser la décision "none" (raison: clamp) sans bruit si --json-only
+        try:
+            if not args.json_only:
+                print("[cli] clamp: un signal a déjà été émis aujourd’hui → None")
+            print("None")
+            from kobe.core.journal import append_event
+            append_event({
+                "type": "decision",
+                "source": "clamp",
+                "result": "none",
+                "reason": "already_emitted_today"
+            })
+        except Exception:
+            # On reste permissif: l'échec du journal n'empêche pas la sortie None
+            pass
+        return 0
+
     # --- DEMO ---
     if args.demo:
         if not args.json_only:
@@ -35,6 +54,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
                 return
             if not args.json_only:
                 print("[cli] decision: DEMO stratégie v0 (≤1 signal/jour, 3 raisons, stop)")
+            # la voie DEMO passe par le module de démo (qui loguera/affichera)
             rc = subprocess.call([sys.executable, "-m", "kobe.strategy.v0_breakout"])
             append_event({
                 "type": "decision",
@@ -91,7 +111,6 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     print("Je ne sais pas (scan live non demandé).\nUtilise `--live` ou `--demo`.")
     return 0
-
 
 # -----------------------------
 # paper-fill
@@ -150,7 +169,6 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
     append_event(out)
     return 0
 
-
 # -----------------------------
 # show-log (avec délégation --pnl-today)
 # -----------------------------
@@ -172,7 +190,6 @@ def _delegate_show_log_to_cli_show_log(args: argparse.Namespace) -> int:
         print(proc.stderr, file=sys.stderr, end="")
     return proc.returncode
 
-
 def _cmd_show_log_local(args: argparse.Namespace) -> int:
     """Affiche simplement le JSONL local (fallback sans --pnl-today)."""
     from kobe.core.journal import JSONL_PATH
@@ -184,17 +201,14 @@ def _cmd_show_log_local(args: argparse.Namespace) -> int:
         print(ln)
     return 0
 
-
 # -----------------------------
 # parser
 # -----------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kobe", description="KobeCrypto CLI v0")
+    p.add_argument("--version", action="store_true", help="Affiche la version et quitte.")  # global
 
-    # Flag global --version (avant sous-commande)
-    p.add_argument("--version", action="store_true", help="Affiche la version et quitte.")
-
-    sub = p.add_subparsers(dest="cmd", required=False)  # pas 'required=True' pour permettre --version seul
+    sub = p.add_subparsers(dest="cmd", required=False)
 
     # scan
     p_scan = sub.add_parser("scan", help="Scan du marché et éventuelle émission d’un signal (≤ 1/jour).")
@@ -219,32 +233,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--tail", type=int, default=10, help="Nombre de lignes à afficher depuis la fin du journal.")
     p_log.add_argument("--pnl-today", dest="pnl_today", action="store_true",
                        help="Afficher le PnL du jour via le module dédié `kobe.cli_show_log`.")
-    # la fonction sera déterminée dans main() car on doit router en fonction de --pnl-today
     p_log.set_defaults(func=None)
-
     return p
-
 
 # -----------------------------
 # main
 # -----------------------------
 def main(argv=None) -> int:
     parser = build_parser()
-
-    # parse une première fois les flags globaux
     known, _ = parser.parse_known_args(argv)
     if getattr(known, "version", False):
         print(__version__)
         return 0
-
-    # parse complet
     args = parser.parse_args(argv)
-
     if getattr(args, "version", False):
         print(__version__)
         return 0
 
-    # routing de show-log (pnl_today -> délégation, sinon local)
     if getattr(args, "cmd", None) == "show-log":
         if getattr(args, "pnl_today", False):
             return _delegate_show_log_to_cli_show_log(args)
@@ -256,7 +261,6 @@ def main(argv=None) -> int:
 
     parser.print_help()
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
