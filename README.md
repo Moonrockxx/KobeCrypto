@@ -128,3 +128,24 @@ python -m kobe.cli scan --demo --json-only
 
 - **V0 (en place)** : CLI locale paper-only ; stratégie *breakout de contraction* ; 0–1 signal/jour ; risque **0,5 %** ; **stop obligatoire** ; 3 raisons ; `scan` · `paper-fill` · `show-log` ; journal CSV/JSONL ; 2+ tests ; README ; .gitignore.
 - **V1 (prochaine)** : mêmes garde-fous + PnL/jour consolidé natif dans la CLI ; sélection d’1 altcoin plus nette ; plus de tests & docs ; ergonomie CLI (messages d’erreur et exemples).
+
+# Lexique débutant
+
+---
+
+## Lexique débutant
+
+- **Long** : acheter en pensant que le prix va monter.  
+- **Short** : vendre (ou simuler une vente) en pensant que le prix va baisser.  
+- **Stop** : niveau de sécurité où la position serait coupée si le marché va contre nous.  
+- **Risk_pct** : pourcentage du capital risqué par trade. Dans la v0, c’est **0,5 %**.  
+- **Slippage (bps)** : glissement entre le prix attendu et le prix d’exécution (1 bps = 0,01 %).  
+- **Lot_step** : taille minimale d’un ordre (ex. 0,001 BTC).  
+- **Clamp ≤1/jour** : limite stricte d’un seul signal maximum par jour.  
+- **PnL (Profit and Loss)** : gain ou perte réalisé(e) sur un trade (en devise ou en %).  
+
+---
+
+**v0 ATTEINTE ✅** — tous les critères du SOP sont remplis :  
+- CLI exécutable, config YAML complète, WS Binance, stratégie breakout, risk sizing 0,5 %, clamp, journal CSV+JSONL, tests unitaires, README + lexique + .env.example.  
+- Version stable pour usage paper-trading éducatif.
