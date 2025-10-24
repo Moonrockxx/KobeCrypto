@@ -2,10 +2,12 @@
 account:
   equity: 10000.0         # capital de référence
   risk_pct: 0.005         # 0,5 % par trade (v0)
+
 execution:
   slippage_bps: 2         # 2 bps par défaut pour paper-fill
   lot_step: 0.001         # taille minimale de lot (altcoins)
   min_qty: 0.001
+
 strategy:
   symbols: [BTCUSDT, ETHUSDT, SOLUSDT]  # BTC, ETH + 1 alt
   max_signals_per_day: 1                # v0: 0 ou 1 signal/jour
@@ -14,5 +16,6 @@ strategy:
     breakout_lookback: 2
     atr_lookback: 14
     atr_multiplier_stop: 1.0            # stop obligatoire basé ATR (v0)
+
 logging:
   dir: logs

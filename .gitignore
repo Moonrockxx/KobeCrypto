@@ -26,3 +26,12 @@ config.yaml
 config/config.yaml
 logs/
 data/
+# config locale non versionnée
+config/config.yaml
+
+# backups / brouillons
+*.bak
+*.backup
+kobe/cli.py.bak
+README.md.bak
+README.md.backup
