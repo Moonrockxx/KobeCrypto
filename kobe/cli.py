@@ -142,7 +142,7 @@ def cmd_paper_fill(args: argparse.Namespace) -> int:
 
     equity = args.equity if args.equity is not None else cfg.get("equity")
     if equity is None:
-        print("Je ne sais pas.\nFournis --equity ou un config.yaml avec `equity:`.")
+        print("Je ne sais pas.\nFournis --equity ou un config/config.yaml avec `equity:`.")
         return 1
     equity = float(equity)
 
@@ -225,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pf = sub.add_parser("paper-fill", help="Simule l’exécution (entrée/stop/TP) à partir d’un signal JSON via stdin.")
     p_pf.add_argument("--equity", type=float, required=False, help="Capital total (ex: 10000). Si absent, lit la config.")
     p_pf.add_argument("--slippage-bps", type=int, default=None, help="Glissement en bps (100 bps = 1%). Si absent, lit la config.")
-    p_pf.add_argument("--config", default="config.yaml", help="Chemin du fichier de config YAML.")
+    p_pf.add_argument("--config", default="config/config.yaml", help="Chemin du fichier de config YAML (ex: config/config.yaml).")
     p_pf.set_defaults(func=cmd_paper_fill)
 
     # show-log
