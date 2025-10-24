@@ -8,11 +8,58 @@ import json
 
 from kobe import __version__
 from kobe.core.clamp import emitted_signal_today
+from datetime import datetime, time, timezone
+from kobe.core.config import load_config
+from kobe.core.journal import append_event
 
 # -----------------------------
 # scan
 # -----------------------------
 def cmd_scan(args: argparse.Namespace) -> int:
+    # Fenêtre horaire (UTC) via config/config.yaml
+    def _in_session_now_utc(cfg: dict) -> bool:
+        sess = (cfg or {}).get("session") or {}
+        start = sess.get("start")
+        end = sess.get("end")
+        if not start or not end:
+            return True  # pas de fenêtre -> autorisé
+        try:
+            h1, m1 = map(int, str(start).split(":"))
+            h2, m2 = map(int, str(end).split(":"))
+            now = datetime.now(timezone.utc).time()
+            t1 = time(h1, m1, tzinfo=timezone.utc)
+            t2 = time(h2, m2, tzinfo=timezone.utc)
+            if t1 <= t2:
+                return t1 <= now <= t2
+            # fenêtre qui traverse minuit
+            return now >= t1 or now <= t2
+        except Exception:
+            return True  # en cas de config invalide, on ne bloque pas
+
+    try:
+        cfg = load_config("config/config.yaml")
+    except Exception:
+        cfg = {}
+    if not _in_session_now_utc(cfg):
+        if not getattr(args, "json_only", False):
+            print("[cli] session: hors fenêtre -> None")
+        print("None")
+        evt = {
+            "type": "decision",
+            "source": "session",
+            "result": "none",
+            "reason": "out_of_session",
+            "ts": int(datetime.now(timezone.utc).timestamp() * 1000)
+        }
+        try:
+            append_event(evt)
+        except Exception:
+            # Fallback: écriture directe JSONL pour ne jamais perdre l'info
+            from kobe.core.journal import JSONL_PATH
+            JSONL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with JSONL_PATH.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(evt, ensure_ascii=False) + "\n")
+        return 0
     # CLAMP: si un signal a déjà été émis aujourd'hui → on renvoie None immédiatement
     if emitted_signal_today():
         # journaliser la décision "none" (raison: clamp) sans bruit si --json-only

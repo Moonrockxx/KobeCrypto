@@ -1,4 +1,3 @@
-# Kobe v0 — Exemple de configuration
 account:
   equity: 10000.0         # capital de référence
   risk_pct: 0.005         # 0,5 % par trade (v0)
@@ -19,3 +18,7 @@ strategy:
 
 logging:
   dir: logs
+
+session:
+  start: "07:00"  # UTC
+  end:   "21:00"  # UTC
