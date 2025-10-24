@@ -100,3 +100,31 @@ python -m kobe.cli show-log --tail 10
 python -m kobe.cli --version
 ```
 
+## Clamp ≤1 signal/jour (UTC)
+
+**Pourquoi ?** Le MVP garantit **0 ou 1 signal/jour**. Si un signal a déjà été émis **aujourd’hui (UTC)**, `scan` renvoie **`None`** (démo & réel). Aucune promesse de gain. Objectif : discipline et reproductibilité.
+
+**Comment ça marche ?**
+- La CLI vérifie le journal JSONL : s’il existe un `{"type":"signal","ts":...}` daté du jour (UTC), tout nouveau `scan` renvoie `None`.
+- Chemin démo : `kobe.strategy.v0_breakout` ; chemin réel : `v0_contraction_breakout`.
+- Le clamp journalise une décision `{"type":"decision","source":"clamp","result":"none","reason":"already_emitted_today"}`.
+
+**Exemple rapide**
+```bash
+# 1er run (peut produire un Signal JSON)
+python -m kobe.cli scan --demo --json-only
+# 2e run le même jour → clamp → None
+python -m kobe.cli scan --demo --json-only
+```
+
+**Notes**
+- Horloge de référence : UTC (timestamp ISO8601/epoch).
+- Le clamp n’empêche pas la journalisation d’événements non-signal (paper-fill, etc.).
+- Secrets/data/logs restent non committés (voir `.gitignore`).
+
+---
+
+## Roadmap ultra-simple (V0 → V1)
+
+- **V0 (en place)** : CLI locale paper-only ; stratégie *breakout de contraction* ; 0–1 signal/jour ; risque **0,5 %** ; **stop obligatoire** ; 3 raisons ; `scan` · `paper-fill` · `show-log` ; journal CSV/JSONL ; 2+ tests ; README ; .gitignore.
+- **V1 (prochaine)** : mêmes garde-fous + PnL/jour consolidé natif dans la CLI ; sélection d’1 altcoin plus nette ; plus de tests & docs ; ergonomie CLI (messages d’erreur et exemples).
