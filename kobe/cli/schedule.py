@@ -10,6 +10,7 @@ from kobe.core.factors import get_market_snapshot
 from kobe.signals.generator import generate_proposal_from_factors
 from kobe.signals.proposal import format_proposal_for_telegram
 from kobe.core.journal import log_proposal
+from kobe.core.risk import validate_proposal, RiskConfig
 from apscheduler.triggers.interval import IntervalTrigger
 from pytz import UTC
 from kobe.cli.report import run_report
@@ -24,13 +25,20 @@ def load_cfg(path: str = "config.yaml") -> dict:
     with p.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-def run_auto_proposal_job(symbol: str = "BTCUSDT"):
+def run_auto_proposal_job(symbol: str = "BTCUSDT", risk_cfg: RiskConfig | None = None):
     """Génère automatiquement une proposal à partir des facteurs mock et la log si valide (silencieux Telegram)."""
     snapshot = get_market_snapshot(symbol)
     p = generate_proposal_from_factors(snapshot)
     if not p:
         print("⚙️  Aucun signal auto détecté.")
         return
+    # Garde-fous de risque (avant tout log/affichage)
+    if risk_cfg is not None:
+        try:
+            validate_proposal(p, risk_cfg, is_proposal=True)
+        except Exception as e:
+            print(f"[auto_proposal] rejet par risk guard: {e}")
+            return
     log_proposal(p.model_dump())
     msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
     print(msg)
@@ -61,6 +69,11 @@ def main(argv=None):
     max_items = news_cfg.get("max_items_per_run", 6)
     enabled_hours_utc = scheduler_cfg.get("enabled_hours_utc", list(range(7,22)))
     interval_minutes = scheduler_cfg.get("interval_minutes", 15)
+    risk_cfg_dict = cfg.get("risk", {}) or {}
+    try:
+        risk_cfg = RiskConfig(**risk_cfg_dict)
+    except Exception:
+        risk_cfg = RiskConfig()  # retombe sur défauts sûrs
 
     reporting_daily_cfg = cfg.get("reporting", {}).get("daily", {})
     daily_enabled = bool(reporting_daily_cfg.get("enabled", True))
@@ -90,7 +103,7 @@ def main(argv=None):
 
     def _auto_job_wrapper():
         try:
-            run_auto_proposal_job("BTCUSDT")
+            run_auto_proposal_job("BTCUSDT", risk_cfg)
         except Exception as e:
             print(f"[auto_proposal_job] erreur: {e}")
 
