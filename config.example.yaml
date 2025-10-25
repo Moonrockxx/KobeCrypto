@@ -34,3 +34,21 @@ news:
     - "https://www.theblock.co/rss"
   keywords_any: ["BTC","ETH","Bitcoin","Ethereum","Solana","ETF","SEC","ETF spot","liquidation","funding","on-chain"]
   max_items_per_run: 6
+
+# --- V1.1: Flags d'alertes (trades uniquement), reporting quotidien et garde-fous de risque ---
+alerts:
+  trades:
+    enabled: false            # true => autorise l'envoi des trades sur Telegram (news toujours silencieuses)
+
+reporting:
+  daily:
+    enabled: true             # active le reporting quotidien (paper)
+    time_utc: "21:00"         # heure UTC d'émission du rapport quotidien (PnL)
+    # À l'activation + token Telegram valide, un résumé peut être envoyé en fin de journée
+
+risk:
+  max_trade_pct: 0.5          # plafond absolu de risque par trade (% du capital)
+  max_proposal_pct: 0.25      # plafond absolu pour une proposal (% du capital)
+
+paper:
+  auto_close: false           # si true (mode test uniquement): close simulé automatique (TP/SL) pour générer un PnL
