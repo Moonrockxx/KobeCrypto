@@ -1,151 +1,178 @@
-# KobeCrypto — Version minimale (paper trading)
+# KobeCrypto — Version minimale (paper trading)# KobeCrypto — V1 baseline (scheduler + paper trading + CI)
 
-KobeCrypto est un petit outil qui **propose au maximum 1 idée de trade par jour** sur le Bitcoin, l’Ether et une petite altcoin.  
-C’est **100 % papier** (simulation) : on observe, on comprend, on apprend — pas d’argent réel.
-
----
-
-## Comment ça marche (en clair)
-1. Le programme **regarde le marché en temps réel** et attend des moments où **le prix se resserre** puis **part franchement** (cassure d’un côté).
-2. S’il y a un setup propre, il **propose 1 signal** : sens (achat/vente), **prix d’entrée**, **stop** (niveau de sécurité) et **risque 0,5 %**.
-3. Ce signal peut être **rempli en papier** (simulation), et **enregistré** dans un journal pour suivi.
-
-> **Important** : il y a **au plus 1 signal par jour**. Souvent, il n’y en a **aucun** — c’est volontaire.
+KobeCrypto est un bot **paper trading éducatif**, conçu pour proposer **au maximum 1 idée actionnable par jour**.  
+Il fonctionne en mode simulation complète : **aucun ordre réel** n’est envoyé.
 
 ---
 
-## Installation rapide (macOS / Linux)
+## 🔍 Fonctionnement
+
+Kobe analyse le marché toutes les 15 minutes (07h–21h UTC) :
+
+1. **Veille actus** silencieuse (pas de message Telegram).  
+2. **Auto‑proposal** : génération d’une idée de trade si les facteurs convergent.  
+3. **Risk guard** : rejette tout signal incohérent ou dépassant le risque max (≤ 0.5 %).  
+4. **Journalisation** automatique (proposals, positions papier, PnL).  
+5. **Reporting quotidien** (résumé du PnL simulé à 21:00 UTC).  
+
+> Par défaut, Telegram est désactivé.  
+> Il peut être activé uniquement pour les **trades** (jamais pour les news).
+
+---
+
+## ⚙️ Installation
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-C’est tout. Aucune clé API à fournir pour commencer.
+---
+
+## 🧩 Configuration (`config.yaml`)
+
+Copie le modèle et adapte-le :
+```bash
+cp config.example.yaml config.yaml
+```
+
+Exemple :
+```yaml
+telegram:
+  bot_token: ""         # Token du bot Telegram (laisser vide pour désactiver)
+  chat_id: ""           # ID du chat Telegram
+
+scheduler:
+  enabled_hours_utc: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]
+  interval_minutes: 15
+
+news:
+  feeds:
+    - "https://www.coindesk.com/arc/outboundfeeds/rss/"
+    - "https://cointelegraph.com/rss"
+    - "https://www.theblock.co/rss"
+  keywords_any: ["BTC","ETH","Solana","ETF","SEC","funding","on-chain"]
+  max_items_per_run: 6
+
+alerts:
+  trades:
+    enabled: false        # true → envoi Telegram des trades (jamais les news)
+
+reporting:
+  daily:
+    enabled: true
+    time_utc: "21:00"
+
+risk:
+  max_trade_pct: 0.5
+  max_proposal_pct: 0.25
+
+paper:
+  auto_close: false       # pour tests : ferme auto les positions simulées
+```
+
+> Les logs (`logs/*.csv`, `logs/*.jsonl`) sont ignorés par Git.
 
 ---
 
-## Premier essai (démo, données intégrées)
-Affiche un exemple de signal (ou "None") sans toucher au marché réel.
+## 🚀 Utilisation
 
+### Lancer le scheduler (veille + proposals + reporting)
 ```bash
-python -m kobe.cli scan --demo --json-only
+source .venv/bin/activate
+python -m kobe.cli.schedule
+```
+
+Mode debug (un seul cycle) :
+```bash
+python -m kobe.cli.schedule --once
 ```
 
 ---
 
-## En “vrai” (live, marché public)
-Regarde le flux en direct et décide s’il y a un signal aujourd’hui.
-
+### Générer une proposal manuelle
 ```bash
-python -m kobe.cli scan --live --bars 20 --json-only
-# Astuce : il est normal d'obtenir "None" la plupart du temps.
+python -m kobe.cli.signal \
+  --symbol BTCUSDT --side long \
+  --entry 68000 --stop 67200 --take 69600 \
+  --reason "Breakout" --reason "Funding neutre" --reason "SPX corrélé +" \
+  --risk-pct 0.25 --size-pct 5
+```
+
+### Auto‑signal avec facteurs fournis
+```bash
+python -m kobe.cli.autosignal \
+  --symbol ETHUSDT --price 2400 \
+  --trend-strength 0.75 --news-sentiment 0.7 \
+  --funding-bias 0.1 --volatility 0.6 --btc-dominance 0.58
+```
+
+### Reporting manuel (PnL)
+```bash
+python -m kobe.cli.report
 ```
 
 ---
 
-## Interpréter la sortie
-- **"None"** : pas de signal aujourd’hui → on ne fait rien.
-- **Un petit JSON** (ex.) :
-  ```json
-  {
-    "symbol": "BTCUSDT",
-    "side": "long",
-    "entry": 64350.0,
-    "stop": 63500.0,
-    "risk_pct": 0.5,
-    "reasons": [
-      "Prix resserré puis cassure",
-      "Rupture du range récent",
-      "Volume suffisant"
-    ]
-  }
-  ```
-  - **side** : sens ("long" = achat, "short" = vente)
-  - **entry** : prix proposé
-  - **stop** : filet de sécurité si le marché va contre nous
-  - **risk_pct** : part du capital mise en jeu sur l’idée (ici **0,5 %**)
-  - **reasons** : 3 raisons simples qui expliquent le signal
+## 📂 Journaux
+
+| Type | Fichier | Description |
+|------|----------|-------------|
+| Proposals | `logs/journal.csv` / `.jsonl` | Idées de trade générées |
+| Positions | `logs/positions.csv` / `.jsonl` | Trades simulés (open/close) |
+| PnL | `logs/pnl_daily.csv` / `.jsonl` | Résumé du jour |
 
 ---
 
-## Paper trading (simulation) : quoi faire
-1) **Remplir** la proposition en papier (calcule la quantité, applique le stop, et journalise) :
+## 🧠 Architecture
+
+- `kobe/core/` → cœur (scheduler, journal, risk, executor, alerts)
+- `kobe/signals/` → logique des proposals
+- `kobe/cli/` → commandes CLI
+- `tests/` → tests unitaires Pytest
+- `docs/` → documentation
+
+---
+
+## 🧪 Tests & CI
+
+Lancer tous les tests :
 ```bash
-python -m kobe.cli scan --demo --json-only | python -m kobe.cli paper-fill
-# ou avec le live :
-# python -m kobe.cli scan --live --bars 20 --json-only | python -m kobe.cli paper-fill
+pytest -q
 ```
 
-2) **Lire le journal** (ce qui a été simulé) :
-```bash
-python -m kobe.cli show-log --tail 10
-```
-
-3) **Ce que vous ne faites pas** : pas d’ordre réel sur un échange. Le but est d’apprendre la logique et le suivi **sans risque**.
+CI GitHub : exécution automatique sur chaque push/PR.
 
 ---
 
-## Rappels utiles
-- **≤ 1 signal/jour** (il est normal d’avoir "None").
-- **Stop toujours présent** et **risque fixe 0,5 %** pour cadrer la perte potentielle.
-- **Aucune promesse de gain**. Projet éducatif uniquement.
-- Évitez de publier vos fichiers locaux de configuration ou de journaux sur internet.
+## 📬 Telegram (trade‑only)
+
+1. Crée ton bot avec **BotFather** et récupère :
+   - `bot_token`
+   - `chat_id` (via `@userinfobot`)
+2. Mets `alerts.trades.enabled: true` dans `config.yaml`.
+3. Relance le scheduler :
+   ```bash
+   python -m kobe.cli.schedule
+   ```
+4. Tu recevras les trades validés (jamais les news).
 
 ---
 
-## Version
-```bash
-python -m kobe.cli --version
-```
+## 🗺️ Roadmap
 
-## Clamp ≤1 signal/jour (UTC)
-
-**Pourquoi ?** Le MVP garantit **0 ou 1 signal/jour**. Si un signal a déjà été émis **aujourd’hui (UTC)**, `scan` renvoie **`None`** (démo & réel). Aucune promesse de gain. Objectif : discipline et reproductibilité.
-
-**Comment ça marche ?**
-- La CLI vérifie le journal JSONL : s’il existe un `{"type":"signal","ts":...}` daté du jour (UTC), tout nouveau `scan` renvoie `None`.
-- Chemin démo : `kobe.strategy.v0_breakout` ; chemin réel : `v0_contraction_breakout`.
-- Le clamp journalise une décision `{"type":"decision","source":"clamp","result":"none","reason":"already_emitted_today"}`.
-
-**Exemple rapide**
-```bash
-# 1er run (peut produire un Signal JSON)
-python -m kobe.cli scan --demo --json-only
-# 2e run le même jour → clamp → None
-python -m kobe.cli scan --demo --json-only
-```
-
-**Notes**
-- Horloge de référence : UTC (timestamp ISO8601/epoch).
-- Le clamp n’empêche pas la journalisation d’événements non-signal (paper-fill, etc.).
-- Secrets/data/logs restent non committés (voir `.gitignore`).
+| Version | État | Contenu |
+|----------|------|---------|
+| **V1.0.0** | ✅ | Scheduler, auto‑proposal, journal, tests, CI |
+| **V1.1** | 🏗️ | Executor papier, risk guard, reporting, Telegram trades |
+| **V2.0** | 🚧 | Passage testnet, API exchange, données temps réel |
 
 ---
 
-## Roadmap ultra-simple (V0 → V1)
+## ⚠️ Avertissement
 
-- **V0 (en place)** : CLI locale paper-only ; stratégie *breakout de contraction* ; 0–1 signal/jour ; risque **0,5 %** ; **stop obligatoire** ; 3 raisons ; `scan` · `paper-fill` · `show-log` ; journal CSV/JSONL ; 2+ tests ; README ; .gitignore.
-- **V1 (prochaine)** : mêmes garde-fous + PnL/jour consolidé natif dans la CLI ; sélection d’1 altcoin plus nette ; plus de tests & docs ; ergonomie CLI (messages d’erreur et exemples).
-
-# Lexique débutant
-
----
-
-## Lexique débutant
-
-- **Long** : acheter en pensant que le prix va monter.  
-- **Short** : vendre (ou simuler une vente) en pensant que le prix va baisser.  
-- **Stop** : niveau de sécurité où la position serait coupée si le marché va contre nous.  
-- **Risk_pct** : pourcentage du capital risqué par trade. Dans la v0, c’est **0,5 %**.  
-- **Slippage (bps)** : glissement entre le prix attendu et le prix d’exécution (1 bps = 0,01 %).  
-- **Lot_step** : taille minimale d’un ordre (ex. 0,001 BTC).  
-- **Clamp ≤1/jour** : limite stricte d’un seul signal maximum par jour.  
-- **PnL (Profit and Loss)** : gain ou perte réalisé(e) sur un trade (en devise ou en %).  
-
----
-
-**v0 ATTEINTE ✅** — tous les critères du SOP sont remplis :  
-- CLI exécutable, config YAML complète, WS Binance, stratégie breakout, risk sizing 0,5 %, clamp, journal CSV+JSONL, tests unitaires, README + lexique + .env.example.  
-- Version stable pour usage paper-trading éducatif.
+> KobeCrypto est un projet éducatif.  
+> Il ne fournit **aucun conseil financier** et n’exécute **aucun ordre réel**.  
+> Les marchés sont risqués : n’investissez que ce que vous pouvez perdre.
