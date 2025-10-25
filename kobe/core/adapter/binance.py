@@ -36,17 +36,34 @@ class BinanceAdapter(Exchange):
             raise NetworkError(str(e))
 
     # --- implémentations Exchange ---
-    def load_markets(self) -> Dict[str, Any]:
-        """Charge la liste des paires depuis le testnet (ou mock fallback)."""
+    def load_markets(self, quote_filter: Optional[str] = "USDT", max_markets: Optional[int] = 250) -> Dict[str, Any]:
+        """
+        Charge la liste des paires depuis le testnet (ou mock fallback).
+        - quote_filter: si défini (ex: "USDT"), ne conserve que les paires avec ce quote asset.
+                        si None: conserve toutes les paires retournées par l'API.
+        - max_markets: tronque le nombre de marchés (utile pour CI); si None, pas de tronquage.
+        """
         try:
             data = self._get("/exchangeInfo")
-            return {s["symbol"]: s for s in data.get("symbols", [])}
+            symbols = data.get("symbols", [])
+            # Filtrage par quote asset si demandé
+            if quote_filter:
+                symbols = [s for s in symbols if str(s.get("quoteAsset", "")).upper() == quote_filter.upper()]
+            # Tronquage si demandé
+            if isinstance(max_markets, int) and max_markets > 0:
+                symbols = symbols[:max_markets]
+            return {s["symbol"]: s for s in symbols}
         except Exception:
-            # fallback mock
-            return {
+            # fallback mock (déjà filtré USDT)
+            markets = {
                 "BTCUSDT": {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT"},
                 "ETHUSDT": {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT"},
             }
+            # Tronquage éventuel
+            if isinstance(max_markets, int) and max_markets > 0:
+                items = list(markets.items())[:max_markets]
+                return {k: v for k, v in items}
+            return markets
 
     def get_balance(self, asset: str) -> float:
         """Retourne un solde fictif constant."""
@@ -95,7 +112,7 @@ class BinanceAdapter(Exchange):
 # --- test manuel ---
 if __name__ == "__main__":
     ex = BinanceAdapter()
-    mkts = ex.load_markets()
+    mkts = ex.load_markets()  # USDT-only par défaut (~200-250) ; passez quote_filter=None pour tout
     print("✅ Markets:", list(mkts.keys())[:2])
     print("✅ Balance BTC:", ex.get_balance("BTC"))
     o = ex.create_order("BTCUSDT", "buy", "market", 0.001)
