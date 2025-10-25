@@ -35,3 +35,11 @@ config/config.yaml
 kobe/cli.py.bak
 README.md.bak
 README.md.backup
+
+# --- Kobe V1 hygiene ---
+.env
+.env.*
+data/
+logs/
+*.csv
+*.jsonl
