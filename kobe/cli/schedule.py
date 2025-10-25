@@ -11,6 +11,7 @@ from kobe.signals.generator import generate_proposal_from_factors
 from kobe.signals.proposal import format_proposal_for_telegram
 from kobe.core.journal import log_proposal
 from kobe.core.risk import validate_proposal, RiskConfig
+from kobe.core.trade_alerts import send_trade
 from apscheduler.triggers.interval import IntervalTrigger
 from pytz import UTC
 from kobe.cli.report import run_report
@@ -25,7 +26,12 @@ def load_cfg(path: str = "config.yaml") -> dict:
     with p.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-def run_auto_proposal_job(symbol: str = "BTCUSDT", risk_cfg: RiskConfig | None = None):
+def run_auto_proposal_job(
+    symbol: str = "BTCUSDT",
+    risk_cfg: RiskConfig | None = None,
+    notifier: Notifier | None = None,
+    trades_alerts_enabled: bool = False,
+):
     """Génère automatiquement une proposal à partir des facteurs mock et la log si valide (silencieux Telegram)."""
     snapshot = get_market_snapshot(symbol)
     p = generate_proposal_from_factors(snapshot)
@@ -41,7 +47,14 @@ def run_auto_proposal_job(symbol: str = "BTCUSDT", risk_cfg: RiskConfig | None =
             return
     log_proposal(p.model_dump())
     msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
-    print(msg)
+    if trades_alerts_enabled and notifier is not None:
+        # Telegram trade-only: envoie le trade si flag activé et notifier dispo
+        sent = send_trade(notifier, p, balance_usd=10000.0, leverage=2.0)
+        if not sent:
+            print(msg)
+    else:
+        # Mode par défaut: console uniquement
+        print(msg)
 
 def _parse_hhmm(s: str) -> tuple[int, int]:
     parts = str(s).strip().split(":")
@@ -80,6 +93,9 @@ def main(argv=None):
     daily_time = reporting_daily_cfg.get("time_utc", "21:00")
     _daily_hr, _daily_min = _parse_hhmm(daily_time)
 
+    alerts_trades_cfg = (cfg.get("alerts", {}) or {}).get("trades", {}) or {}
+    trades_alerts_enabled = bool(alerts_trades_cfg.get("enabled", False))
+
     # Création Notifier si token renseigné (sinon None)
     notifier = None
     if tg_cfg.get("bot_token") and not tg_cfg["bot_token"].startswith("YOUR_"):
@@ -103,7 +119,7 @@ def main(argv=None):
 
     def _auto_job_wrapper():
         try:
-            run_auto_proposal_job("BTCUSDT", risk_cfg)
+            run_auto_proposal_job("BTCUSDT", risk_cfg, notifier, trades_alerts_enabled)
         except Exception as e:
             print(f"[auto_proposal_job] erreur: {e}")
 
