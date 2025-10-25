@@ -6,6 +6,12 @@ from pathlib import Path
 
 from kobe.core.scheduler import build_scheduler, run_news_job
 from kobe.core.notify import Notifier, TelegramConfig
+from kobe.core.factors import get_market_snapshot
+from kobe.signals.generator import generate_proposal_from_factors
+from kobe.signals.proposal import format_proposal_for_telegram
+from kobe.core.journal import log_proposal
+from apscheduler.triggers.interval import IntervalTrigger
+from pytz import UTC
 
 def load_cfg(path: str = "config.yaml") -> dict:
     p = Path(path)
@@ -15,6 +21,17 @@ def load_cfg(path: str = "config.yaml") -> dict:
         )
     with p.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+def run_auto_proposal_job(symbol: str = "BTCUSDT"):
+    """Génère automatiquement une proposal à partir des facteurs mock et la log si valide (silencieux Telegram)."""
+    snapshot = get_market_snapshot(symbol)
+    p = generate_proposal_from_factors(snapshot)
+    if not p:
+        print("⚙️  Aucun signal auto détecté.")
+        return
+    log_proposal(p.model_dump())
+    msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
+    print(msg)
 
 def main(argv=None):
     argv = argv or sys.argv[1:]
@@ -52,9 +69,26 @@ def main(argv=None):
         )
         return 0
 
+    # Scheduler pour news + job auto_proposal
     sched = build_scheduler(
         interval_minutes, feeds, keywords, max_items, enabled_hours_utc,
         notifier, use_telegram_for_news=False
+    )
+
+    def _auto_job_wrapper():
+        try:
+            run_auto_proposal_job("BTCUSDT")
+        except Exception as e:
+            print(f"[auto_proposal_job] erreur: {e}")
+
+    print("⚙️  Ajout du job auto_proposal (toutes les", interval_minutes, "min)")
+    sched.add_job(
+        _auto_job_wrapper,
+        trigger=IntervalTrigger(minutes=interval_minutes, timezone=UTC),
+        id="auto-proposal",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
     print("⏱️ Scheduler lancé — fenêtre UTC:", enabled_hours_utc, f"(toutes les {interval_minutes} min)")
