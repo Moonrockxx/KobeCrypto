@@ -70,7 +70,10 @@ def main(argv=None):
     )
     parser.add_argument("--once", action="store_true", help="Exécuter une seule fois (debug mode)")
     parser.add_argument("--config", default="config.yaml", help="Chemin vers le fichier config")
+    parser.add_argument("--symbol", default="BTCUSDT", help="Symbole pour l’auto‑proposal (ex: BTCUSDT)")
     args = parser.parse_args(argv)
+
+    selected_symbol = args.symbol
 
     cfg = load_cfg(args.config)
     tg_cfg = cfg.get("telegram", {})
@@ -119,7 +122,7 @@ def main(argv=None):
 
     def _auto_job_wrapper():
         try:
-            run_auto_proposal_job("BTCUSDT", risk_cfg, notifier, trades_alerts_enabled)
+            run_auto_proposal_job(selected_symbol, risk_cfg, notifier, trades_alerts_enabled)
         except Exception as e:
             print(f"[auto_proposal_job] erreur: {e}")
 
