@@ -12,6 +12,8 @@ from kobe.signals.proposal import format_proposal_for_telegram
 from kobe.core.journal import log_proposal
 from apscheduler.triggers.interval import IntervalTrigger
 from pytz import UTC
+from kobe.cli.report import run_report
+from apscheduler.triggers.cron import CronTrigger
 
 def load_cfg(path: str = "config.yaml") -> dict:
     p = Path(path)
@@ -33,6 +35,12 @@ def run_auto_proposal_job(symbol: str = "BTCUSDT"):
     msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
     print(msg)
 
+def _parse_hhmm(s: str) -> tuple[int, int]:
+    parts = str(s).strip().split(":")
+    h = int(parts[0]) if parts and parts[0] else 0
+    m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+    return h, m
+
 def main(argv=None):
     argv = argv or sys.argv[1:]
     parser = argparse.ArgumentParser(
@@ -53,6 +61,11 @@ def main(argv=None):
     max_items = news_cfg.get("max_items_per_run", 6)
     enabled_hours_utc = scheduler_cfg.get("enabled_hours_utc", list(range(7,22)))
     interval_minutes = scheduler_cfg.get("interval_minutes", 15)
+
+    reporting_daily_cfg = cfg.get("reporting", {}).get("daily", {})
+    daily_enabled = bool(reporting_daily_cfg.get("enabled", True))
+    daily_time = reporting_daily_cfg.get("time_utc", "21:00")
+    _daily_hr, _daily_min = _parse_hhmm(daily_time)
 
     # Création Notifier si token renseigné (sinon None)
     notifier = None
@@ -90,6 +103,23 @@ def main(argv=None):
         max_instances=1,
         coalesce=True,
     )
+
+    if daily_enabled:
+        def _daily_report_wrapper():
+            try:
+                run_report(print_last=True)
+            except Exception as e:
+                print(f"[daily_report] erreur: {e}")
+
+        print(f"📅 Ajout du job daily_report à {_daily_hr:02d}:{_daily_min:02d} UTC")
+        sched.add_job(
+            _daily_report_wrapper,
+            trigger=CronTrigger(hour=_daily_hr, minute=_daily_min, timezone=UTC),
+            id="daily-report",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
     print("⏱️ Scheduler lancé — fenêtre UTC:", enabled_hours_utc, f"(toutes les {interval_minutes} min)")
     try:
