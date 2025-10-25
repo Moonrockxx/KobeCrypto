@@ -17,3 +17,20 @@ lot_step: 0.001
 
 # Dossier des journaux
 logs_dir: logs
+
+# --- V1: Alerte Telegram + Scheduler + Veille actus ---
+telegram:
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"   # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
+  chat_id: "YOUR_TELEGRAM_CHAT_ID"       # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
+
+scheduler:
+  enabled_hours_utc: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]  # fenêtre 07–21 UTC
+  interval_minutes: 15
+
+news:
+  feeds:
+    - "https://www.coindesk.com/arc/outboundfeeds/rss/"
+    - "https://cointelegraph.com/rss"
+    - "https://www.theblock.co/rss"
+  keywords_any: ["BTC","ETH","Bitcoin","Ethereum","Solana","ETF","SEC","ETF spot","liquidation","funding","on-chain"]
+  max_items_per_run: 6
