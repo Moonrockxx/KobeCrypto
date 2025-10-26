@@ -1,57 +1,66 @@
-# Exemple de configuration KobeCrypto (paper only)
-# Copiez en config.yaml pour surcharger localement (ne jamais committer config.yaml)
-
-# Capital de référence pour le sizing (paper)
-equity: 10000          # en USD
-risk_pct: 0.5          # % du capital risqué par trade
-slippage_bps: 2        # 1 bps = 0,01 %
-
-# Marchés surveillés (données publiques)
+equity: 10000
+risk_pct: 0.5
+slippage_bps: 2
 symbols:
-  - BTCUSDT
-  - ETHUSDT
-  - SOLUSDT
-
-# Pas minimum de quantité (utile pour le sizing papier, si besoin)
+- BTCUSDT
+- ETHUSDT
+- SOLUSDT
 lot_step: 0.001
-
-# Dossier des journaux
 logs_dir: logs
-
-# --- V1: Alerte Telegram + Scheduler + Veille actus ---
 telegram:
-  bot_token: "8031369974:AAFo11wmZ70x9mXZ6FFSvTImFJetqQqh3dQ"   # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
-  chat_id: "1066198481"       # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
+  bot_token: YOUR_TELEGRAM_BOT_TOKEN
+  chat_id: YOUR_TELEGRAM_CHAT_ID
 
 scheduler:
-  enabled_hours_utc: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]  # fenêtre 07–21 UTC
+  enabled_hours_utc:
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
   interval_minutes: 15
-
 news:
   feeds:
-    - "https://www.coindesk.com/arc/outboundfeeds/rss/"
-    - "https://cointelegraph.com/rss"
-    - "https://www.theblock.co/rss"
-  keywords_any: ["BTC","ETH","Bitcoin","Ethereum","Solana","ETF","SEC","ETF spot","liquidation","funding","on-chain"]
+  - https://www.coindesk.com/arc/outboundfeeds/rss/
+  - https://cointelegraph.com/rss
+  - https://www.theblock.co/rss
+  keywords_any:
+  - BTC
+  - ETH
+  - Bitcoin
+  - Ethereum
+  - Solana
+  - ETF
+  - SEC
+  - ETF spot
+  - liquidation
+  - funding
+  - on-chain
   max_items_per_run: 6
-
-# --- V1.1: Flags d'alertes (trades uniquement), reporting quotidien et garde-fous de risque ---
 alerts:
   trades:
     enabled: true # true => autorise l'envoi des trades sur Telegram (news toujours silencieuses)
     telegram:
-      bot_token: "8031369974:AAFo11wmZ70x9mXZ6FFSvTImFJetqQqh3dQ"   # NE PAS COMMIT
-      chat_id: 1066198481              # NE PAS COMMIT           
-
+      bot_token: ""   # NE PAS COMMIT
+      chat_id:              # NE PAS COMMIT           
+      
 reporting:
   daily:
-    enabled: true             # active le reporting quotidien (paper)
-    time_utc: "21:00"         # heure UTC d'émission du rapport quotidien (PnL)
-    # À l'activation + token Telegram valide, un résumé peut être envoyé en fin de journée
-
+    enabled: true
+    time_utc: '21:00'
 risk:
-  max_trade_pct: 0.5          # plafond absolu de risque par trade (% du capital)
-  max_proposal_pct: 0.25      # plafond absolu pour une proposal (% du capital)
-
+  max_trade_pct: 0.5
+  max_proposal_pct: 0.25
 paper:
-  auto_close: false           # si true (mode test uniquement): close simulé automatique (TP/SL) pour générer un PnL
+  auto_close: false
+demo_signal: false
