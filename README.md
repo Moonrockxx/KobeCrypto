@@ -43,6 +43,12 @@ Exemple :
 telegram:
   bot_token: ""         # Token du bot Telegram (laisser vide pour désactiver)
   chat_id: ""           # ID du chat Telegram
+alerts:
+  trades:
+    enabled: true
+    telegram:
+      bot_token: ""
+      chat_id: ""
 
 scheduler:
   enabled_hours_utc: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]
@@ -76,6 +82,22 @@ paper:
 > Les logs (`logs/*.csv`, `logs/*.jsonl`) sont ignorés par Git.
 
 ---
+## Configuration Telegram
+Pour activer les alertes Telegram, créez un fichier `config.yaml` (non versionné) à partir de `config.example.yaml` :
+```yaml
+alerts:
+   trades:
+     enabled: true
+     telegram:
+      bot_token: "votre_token"
+       chat_id: "votre_chat_id"
+ ```
+Puis vérifiez :
+ ```
+ python -m kobe.cli.health_v2
+ python -m kobe.cli.schedule --once
+ ```
+ ---
 
 ## 🚀 Utilisation
 
