@@ -198,3 +198,12 @@ CI GitHub : exécution automatique sur chaque push/PR.
 > KobeCrypto est un projet éducatif.  
 > Il ne fournit **aucun conseil financier** et n’exécute **aucun ordre réel**.  
 > Les marchés sont risqués : n’investissez que ce que vous pouvez perdre.
+## Exécution manuelle du scheduler (07–21 UTC)
+Le scheduler tourne toutes les 15 minutes entre 07:00 et 21:00 UTC et appelle `kobe.cli.schedule_demo`.
+Pour éviter les retards liés à la mise en veille, lancez-le avec `caffeinate` :
+
+```bash
+source .venv/bin/activate
+caffeinate -i python -m kobe.scheduler_run
+demo_signal doit être false pour n’envoyer que de vraies propositions.
+L’intervalle peut être ajusté via scheduler.interval_minutes dans config.yaml (non versionné).
