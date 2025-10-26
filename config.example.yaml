@@ -20,8 +20,8 @@ logs_dir: logs
 
 # --- V1: Alerte Telegram + Scheduler + Veille actus ---
 telegram:
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"   # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
-  chat_id: "YOUR_TELEGRAM_CHAT_ID"       # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
+  bot_token: "8031369974:AAFo11wmZ70x9mXZ6FFSvTImFJetqQqh3dQ"   # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
+  chat_id: "1066198481"       # ⚠️ Remplacer localement dans config.yaml (ne pas commit)
 
 scheduler:
   enabled_hours_utc: [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]  # fenêtre 07–21 UTC
@@ -38,7 +38,10 @@ news:
 # --- V1.1: Flags d'alertes (trades uniquement), reporting quotidien et garde-fous de risque ---
 alerts:
   trades:
-    enabled: false            # true => autorise l'envoi des trades sur Telegram (news toujours silencieuses)
+    enabled: true # true => autorise l'envoi des trades sur Telegram (news toujours silencieuses)
+    telegram:
+      bot_token: "8031369974:AAFo11wmZ70x9mXZ6FFSvTImFJetqQqh3dQ"   # NE PAS COMMIT
+      chat_id: 1066198481              # NE PAS COMMIT           
 
 reporting:
   daily:
