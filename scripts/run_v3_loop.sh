@@ -1,56 +1,50 @@
 #!/usr/bin/env bash
-# Kobe V3 runner (POSTE 2): boucle 15m 07–21 UTC, logs journaliers, chargement secrets locaux.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$HERE"
+cd "$(dirname "$0")/.."
 
-# 0) Python venv (non versionné)
-if [ ! -d ".venv" ]; then
-  /usr/bin/python3 -m venv .venv
-fi
+LOG_DIR="logs"
+mkdir -p "$LOG_DIR"
+LOG_DAY="$LOG_DIR/runner_$(date -u +%F).log"
+
+[ -d .venv ] || /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
-python -m pip -q install --upgrade pip >/dev/null
-[ -f requirements.txt ] && pip -q install -r requirements.txt >/dev/null
+python3 -m pip -q install --upgrade pip >/dev/null 2>&1 || true
 
-# 1) Secrets optionnels (jamais commit): .secrets/kobe/*.env (clé=valeur)
-load_env() { local f="$1"; [ -f "$f" ] || return 0
+load_env_file() {
+  local f="$1"
+  [ -f "$f" ] || return 0
   while IFS= read -r line; do
-    case "$line" in ''|\#*) continue ;; *=*) export "$line" ;;
-    esac
+    case "$line" in ''|\#*) continue ;; *=*) export "$line" ;; esac
   done < "$f"
 }
-load_env ".secrets/kobe/telegram.env"
-load_env ".secrets/kobe/deepseek.env"
+load_env_file ".secrets/kobe/telegram.env"
+load_env_file ".secrets/kobe/deepseek.env"
 
-# 2) Config locale (non versionnée)
-if [ ! -f "config.yaml" ] && [ -f "config.example.yaml" ]; then
-  cp config.example.yaml config.yaml
-fi
-
-LOG_DAY="logs/runner_$(date -u +%F).log"
-
-usage(){ cat <<EOF
-Usage: $0 [--check|--run]
-  --check  : exécute les vérifications (santé + 1 cycle scheduler) puis s'arrête
-  --run    : lance la boucle 15m (07–21 UTC) via kobe.scheduler_run (recommandé)
-EOF
+# Timestamp portable (macOS ok)
+stamp() {
+  while IFS= read -r line; do
+    printf '[%s UTC] %s\n' "$(date -u '+%F %T')" "$line"
+  done
 }
 
 case "${1:-}" in
   --check)
-    echo "== CHECK: health =="
-    python -m kobe.cli.health_v2 | tee -a "$LOG_DAY"
-    echo "== CHECK: 1 cycle schedule =="
-    python -m kobe.cli.schedule --once | tee -a "$LOG_DAY"
-    echo "== CHECK terminé =="
+    echo "== CHECK: health + 1 cycle ==" | tee -a "$LOG_DAY"
+    python3 -m kobe.cli.health_v2 2>&1 | stamp | tee -a "$LOG_DAY"
+    python3 -m kobe.cli.schedule --once 2>&1 | stamp | tee -a "$LOG_DAY"
     ;;
-  --run)
-    echo "== RUN: boucle V3 (voir $LOG_DAY) =="
-    # README recommande caffeinate + module scheduler_run
-    # Log horodaté; rotation quotidienne par nom de fichier.
-    exec caffeinate -i bash -c 'python -m kobe.scheduler_run 2>&1 | ts "[%Y-%m-%d %H:%M:%S UTC]" | tee -a "'"$LOG_DAY"'"'
+
+  --run|*)
+    echo "== RUN: boucle V3 (07–21 UTC) == (voir $LOG_DAY)" | tee -a "$LOG_DAY"
+    while true; do
+      H=$(date -u +"%H")
+      if [ "$H" -ge 7 ] && [ "$H" -le 21 ]; then
+        python3 -m kobe.scheduler_run 2>&1 | stamp | tee -a "$LOG_DAY"
+      else
+        echo "[${DATE:-$(date -u '+%F %T')} UTC] [Kobe] ⏭️ Hors 07–21 UTC" | tee -a "$LOG_DAY"
+      fi
+      sleep 900
+    done
     ;;
-  *)
-    usage; exit 1;;
 esac

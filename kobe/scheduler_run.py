@@ -1,39 +1,27 @@
+import os, subprocess, sys, datetime
 
-from apscheduler.schedulers.blocking import BlockingScheduler
-from datetime import datetime
-import subprocess, pytz, yaml, os
+def load_env_file(p):
+    if not os.path.exists(p): return
+    with open(p) as f:
+        for line in f:
+            line=line.strip()
+            if not line or line.startswith("#") or "=" not in line: 
+                continue
+            k,v=line.split("=",1)
+            os.environ.setdefault(k.strip(), v.strip())
 
-HOURS_START = 7
-HOURS_END   = 21
+# Charger secrets si présents (ne casse pas si absents)
+load_env_file(".secrets/kobe/telegram.env")
+load_env_file(".secrets/kobe/deepseek.env")
 
-def within_hours_utc(start=HOURS_START, end=HOURS_END):
-    h = datetime.utcnow().hour
-    return start <= h <= end
-
-def job():
-    utc_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    if not within_hours_utc():
-        print(f"[{utc_now} UTC] ⏭️  En dehors de {HOURS_START}–{HOURS_END} UTC — skip.")
-        return
-    print(f"[{utc_now} UTC] ▶︎ Running kobe.cli.schedule_demo ...")
-    subprocess.run(["python", "-m", "kobe.cli.schedule_demo"], check=False)
+def run_once():
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"[{ts}] scheduler_run: START 1-cycle")
+    # Health + un cycle de schedule
+    subprocess.run([sys.executable, "-m", "kobe.cli.health_v2"], check=False)
+    subprocess.run([sys.executable, "-m", "kobe.cli.schedule", "--once"], check=False)
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"[{ts}] scheduler_run: END 1-cycle")
 
 if __name__ == "__main__":
-    cfg = yaml.safe_load(open("config.yaml","r",encoding="utf-8"))
-    interval = cfg.get("scheduler",{}).get("interval_minutes", 15)
-    print(f"Scheduler actif toutes les {interval} min, {HOURS_START}–{HOURS_END} UTC (TESTNET mode)")
-
-    scheduler = BlockingScheduler(
-        timezone=pytz.UTC,
-        job_defaults={
-            "coalesce": True,            # fusion des déclenchements en retard en un seul
-            "max_instances": 1,          # pas de chevauchement
-            "misfire_grace_time": 300,   # 5 min de grâce si sortie de veille
-        },
-    )
-    scheduler.add_job("kobe.scheduler_run:job", "interval",
-                      minutes=interval, next_run_time=datetime.utcnow())
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        print("Arrêt du scheduler.")
+    run_once()
