@@ -46,3 +46,6 @@ logs/
 
 # Kobe V3 billing
 logs/deepseek_billing.json
+
+# Kobe V3 signals
+logs/signals.jsonl
