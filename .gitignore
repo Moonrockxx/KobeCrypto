@@ -43,3 +43,6 @@ data/
 logs/
 *.csv
 *.jsonl
+
+# Kobe V3 billing
+logs/deepseek_billing.json
