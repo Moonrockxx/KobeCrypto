@@ -26,6 +26,17 @@ def fetch_24h(symbol):
         "volume": float(d["volume"])
     }
 
+def precheck_setup(snapshot_item, min_abs_change=2.0, min_volume=1000.0):
+    """
+    Renvoie (ok, reason). ok=True si setup "mouvant" détecté.
+    Heuristique simple : |variation 24h| >= min_abs_change ET volume >= min_volume.
+    """
+    chg = abs(snapshot_item["priceChangePercent"])
+    vol = snapshot_item["volume"]
+    if chg >= min_abs_change and vol >= min_volume:
+        return True, f"abs_change={chg:.2f}% & volume={vol:.0f}>=min"
+    return False, f"no_move(abs={chg:.2f}%, vol={vol:.0f})"
+
 PROMPT_TMPL = """Tu es un assistant de trading. Retourne STRICTEMENT un JSON valide (sans texte autour).
 Contrainte de risque: risk_pct ≤ 0.5 (par défaut 0.25).
 Champs obligatoires: symbol, side in ["LONG","SHORT"], entry, stop, take_profit, risk_pct, leverage, reasons (array >=3).
@@ -35,7 +46,6 @@ Réponds uniquement avec l'objet JSON demandé.
 """
 
 def parse_json_strict(s: str):
-    # supprime éventuellement ```json ... ```
     s = s.strip()
     m = re.match(r"```json\s*(.*?)\s*```", s, re.S)
     if m: s = m.group(1)
@@ -76,6 +86,8 @@ def main():
     ap.add_argument("--risk-pct", type=float, default=0.25)
     ap.add_argument("--dry", action="store_true", help="N'envoie pas Telegram")
     ap.add_argument("--env-telegram", default=".secrets/kobe/telegram.env")
+    ap.add_argument("--min-abs-change", type=float, default=2.0, help="Seuil |variation 24h| en % pour considérer un setup")
+    ap.add_argument("--min-volume", type=float, default=1000.0, help="Seuil volume 24h pour considérer un setup")
     args=ap.parse_args()
 
     load_envfile(args.env_telegram)
@@ -87,20 +99,39 @@ def main():
             snapshot.append(fetch_24h(sym))
         except Exception as e:
             print(f"ERR fetch {sym}: {e}")
-    market_snapshot=json.dumps(snapshot, ensure_ascii=False, indent=2)
 
+    # Pré-filtre setup
+    candidates=[]
+    reasons={}
+    for it in snapshot:
+        ok, reason = precheck_setup(it, args.min_abs_change, args.min_volume)
+        reasons[it["symbol"]]=reason
+        if ok:
+            candidates.append(it)
+    result = {"ts": now, "symbols": symbols, "precheck": reasons}
+
+    if not candidates:
+        # log NO_SETUP et sortir proprement
+        result.update({"llm_ok": False, "status": "NO_SETUP"})
+        with open("logs/signals.jsonl","a",encoding="utf-8") as f:
+            f.write(json.dumps(result, ensure_ascii=False)+"\n")
+        print("SCAN NO_SETUP")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        print("TELEGRAM SKIP (no setup)")
+        return
+
+    # sinon, appeler DeepSeek sur le snapshot de candidats uniquement
+    market_snapshot=json.dumps(candidates, ensure_ascii=False, indent=2)
     # garde-fou risk
     risk = min(max(args.risk_pct, 0.05), 0.5)
-
     prompt = PROMPT_TMPL.format(market_snapshot=market_snapshot)
     ok, res = chat_complete_json(prompt, max_tokens=300)
-    result = {"ts": now, "symbols": symbols, "llm_ok": ok, "raw": res}
-    proposal = None
+    result.update({"llm_ok": ok, "raw": res})
 
+    proposal = None
     if ok:
         try:
             proposal = parse_json_strict(res["text"])
-            # enforce risk clamp
             proposal["risk_pct"] = min(float(proposal.get("risk_pct", risk)), 0.5)
             result["proposal"]=proposal
         except Exception as e:
@@ -108,19 +139,16 @@ def main():
             result["error"]="parse_json_failed"
             result["parse_exception"]=str(e)
 
-    # log JSONL
     with open("logs/signals.jsonl","a",encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False)+"\n")
 
-    # sortie console
     print("SCAN OK" if result.get("llm_ok") else "SCAN ERR")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
-    # Telegram
     if proposal and not args.dry:
         text=build_telegram_text(proposal)
         t=send_telegram(text)
-        if t.get("sent"): 
+        if t.get("sent"):
             print("TELEGRAM OK")
         else:
             print("TELEGRAM SKIP/ERR:", t.get("reason") or t.get("response"))
