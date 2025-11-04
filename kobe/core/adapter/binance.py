@@ -36,7 +36,7 @@ class BinanceAdapter(Exchange):
             raise NetworkError(str(e))
 
     # --- implémentations Exchange ---
-    def load_markets(self, quote_filter: Optional[str] = "USDT", max_markets: Optional[int] = 250) -> Dict[str, Any]:
+    def load_markets(self, quote_filter: Optional[str] = "USDC", max_markets: Optional[int] = 250) -> Dict[str, Any]:
         """
         Charge la liste des paires depuis le testnet (ou mock fallback).
         - quote_filter: si défini (ex: "USDT"), ne conserve que les paires avec ce quote asset.
@@ -56,8 +56,8 @@ class BinanceAdapter(Exchange):
         except Exception:
             # fallback mock (déjà filtré USDT)
             markets = {
-                "BTCUSDT": {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT"},
-                "ETHUSDT": {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT"},
+                "BTCUSDC": {"symbol": "BTCUSDC", "baseAsset": "BTC", "quoteAsset": "USDC"},
+                "ETHUSDC": {"symbol": "ETHUSDC", "baseAsset": "ETH", "quoteAsset": "USDC"},
             }
             # Tronquage éventuel
             if isinstance(max_markets, int) and max_markets > 0:
@@ -106,7 +106,7 @@ class BinanceAdapter(Exchange):
 
     def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         self._simulate_delay()
-        return [{"symbol": "BTCUSDT", "positionAmt": 0.0, "entryPrice": 0.0}]
+        return [{"symbol": "BTCUSDC", "positionAmt": 0.0, "entryPrice": 0.0}]
 
 
 # --- test manuel ---
@@ -115,5 +115,5 @@ if __name__ == "__main__":
     mkts = ex.load_markets()  # USDT-only par défaut (~200-250) ; passez quote_filter=None pour tout
     print("✅ Markets:", list(mkts.keys())[:2])
     print("✅ Balance BTC:", ex.get_balance("BTC"))
-    o = ex.create_order("BTCUSDT", "buy", "market", 0.001)
+    o = ex.create_order("BTCUSDC", "buy", "market", 0.001)
     print("✅ Order:", o)

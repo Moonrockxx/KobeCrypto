@@ -82,7 +82,7 @@ def send_telegram(text: str):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--symbols", default="BTCUSDT,ETHUSDT", help="Liste séparée par des virgules")
+    ap.add_argument("--symbols", default="BTCUSDC,ETHUSDC", help="Liste séparée par des virgules")
     ap.add_argument("--risk-pct", type=float, default=0.25)
     ap.add_argument("--dry", action="store_true", help="N'envoie pas Telegram")
     ap.add_argument("--env-telegram", default=".secrets/kobe/telegram.env")
