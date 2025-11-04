@@ -8,7 +8,7 @@ execution:
   min_qty: 0.001
 
 strategy:
-  symbols: [BTCUSDT, ETHUSDT, SOLUSDT]  # BTC, ETH + 1 alt
+  symbols: [BTCUSDC, ETHUSDC, SOLUSDC]  # BTC, ETH + 1 alt
   max_signals_per_day: 1                # v0: 0 ou 1 signal/jour
   breakout:
     contraction_lookback: 20

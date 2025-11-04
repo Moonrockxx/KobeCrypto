@@ -18,15 +18,15 @@ def test_load_markets_uses_mock_when_network_fails(monkeypatch):
         raise Exception("network down")
     monkeypatch.setattr(ex, "_get", boom)
     mkts = ex.load_markets()
-    # Fallback doit renvoyer au moins BTCUSDT/ETHUSDT
-    assert "BTCUSDT" in mkts and "ETHUSDT" in mkts
+    # Fallback doit renvoyer au moins BTCUSDC/ETHUSDC
+    assert "BTCUSDC" in mkts and "ETHUSDC" in mkts
 
 def test_load_markets_filters_usdt_and_truncates(monkeypatch):
     # Simule une réponse /exchangeInfo contrôlée
     payload = {
         "symbols": [
-            {"symbol": "BTCUSDT", "quoteAsset": "USDT"},
-            {"symbol": "ETHUSDT", "quoteAsset": "USDT"},
+            {"symbol": "BTCUSDC", "quoteAsset": "USDT"},
+            {"symbol": "ETHUSDC", "quoteAsset": "USDT"},
             {"symbol": "BTCBUSD", "quoteAsset": "BUSD"},
             {"symbol": "FOOXYZ", "quoteAsset": "XYZ"},
         ]
@@ -35,16 +35,16 @@ def test_load_markets_filters_usdt_and_truncates(monkeypatch):
     monkeypatch.setattr(ex, "_get", lambda *a, **k: payload)
     mkts = ex.load_markets(quote_filter="USDT", max_markets=1)
     # Filtré sur USDT et tronqué à 1 élément
-    assert list(mkts.keys()) == ["BTCUSDT"]
+    assert list(mkts.keys()) == ["BTCUSDC"]
 
 def test_create_order_mock_positive_flow():
     ex = BinanceAdapter()
-    od = ex.create_order("BTCUSDT", "buy", "market", qty=0.001)
+    od = ex.create_order("BTCUSDC", "buy", "market", qty=0.001)
     assert od["status"].lower() == "filled"
-    assert od["symbol"] == "BTCUSDT"
+    assert od["symbol"] == "BTCUSDC"
     assert od["qty"] == 0.001
 
 def test_create_order_rejects_non_positive_qty():
     ex = BinanceAdapter()
     with pytest.raises(Exception):
-        ex.create_order("BTCUSDT", "buy", "market", qty=0.0)
+        ex.create_order("BTCUSDC", "buy", "market", qty=0.0)

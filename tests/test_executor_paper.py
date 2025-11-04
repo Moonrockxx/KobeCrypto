@@ -11,7 +11,7 @@ def _setup_tmp_logs(tmp_path, monkeypatch):
 def test_long_tp_positive_pnl(tmp_path, monkeypatch):
     _setup_tmp_logs(tmp_path, monkeypatch)
     p = Proposal(
-        symbol="BTCUSDT", side="long",
+        symbol="BTCUSDC", side="long",
         entry=68000.0, stop=67200.0, take=69600.0,
         risk_pct=0.25, size_pct=5.0,
         reasons=["A","B","C"]
@@ -27,7 +27,7 @@ def test_long_tp_positive_pnl(tmp_path, monkeypatch):
 def test_short_sl_negative_pnl(tmp_path, monkeypatch):
     _setup_tmp_logs(tmp_path, monkeypatch)
     p = Proposal(
-        symbol="ETHUSDT", side="short",
+        symbol="ETHUSDC", side="short",
         entry=2400.0, stop=2430.0, take=2340.0,
         risk_pct=0.25, size_pct=5.0,
         reasons=["A","B","C"]

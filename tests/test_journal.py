@@ -10,7 +10,7 @@ def test_log_proposal_creates_files(tmp_path, monkeypatch):
     monkeypatch.setattr("kobe.core.journal.JSONL_PATH", tmp_path / "journal.jsonl")
 
     p = Proposal(
-        symbol="BTCUSDT",
+        symbol="BTCUSDC",
         side="long",
         entry=68000.0,
         stop=67200.0,
@@ -30,13 +30,13 @@ def test_log_proposal_creates_files(tmp_path, monkeypatch):
     data_json = [json.loads(l) for l in (tmp_path / "journal.jsonl").read_text().splitlines()]
     assert data_json and isinstance(data_json[0], dict)
     assert "symbol" in data_json[0]
-    assert data_json[0]["symbol"] == "BTCUSDT"
+    assert data_json[0]["symbol"] == "BTCUSDC"
 
     # Vérifie contenu CSV
     with open(tmp_path / "journal.csv", newline="", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
     assert len(reader) == 1
     row = reader[0]
-    assert row["symbol"] == "BTCUSDT"
+    assert row["symbol"] == "BTCUSDC"
     assert row["side"] == "long"
     assert float(row["risk_pct"]) == 0.25

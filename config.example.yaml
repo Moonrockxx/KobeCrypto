@@ -2,9 +2,9 @@ equity: 10000
 risk_pct: 0.5
 slippage_bps: 2
 symbols:
-- BTCUSDT
-- ETHUSDT
-- SOLUSDT
+- BTCUSDC
+- ETHUSDC
+- SOLUSDC
 lot_step: 0.001
 logs_dir: logs
 telegram:
