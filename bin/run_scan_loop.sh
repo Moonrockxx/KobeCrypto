@@ -55,7 +55,7 @@ while true; do
   if [ "$hour_utc" -ge 07 ] && [ "$hour_utc" -lt 21 ]; then
     ts="$(date -u '+%F %T')"
     echo "[runner] tick $ts UTC → scan_once_v3" | tee -a "$log_file"
-    python -m kobe.cli.scan_once_v3 >>"$log_file" 2>&1 || \
+    python3 -m kobe.cli.scan_once_v3 --symbols BTCUSDC,ETHUSDC,SOLUSDC >>"$log_file" 2>&1 || \
       echo "[runner] WARN $(date -u '+%F %T') scan_once_v3 exit non-zero" | tee -a "$log_file"
     align_to_next_quarter
   else
