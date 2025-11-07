@@ -1,4 +1,27 @@
 from __future__ import annotations
+# --- V4 fallback helpers (top-level, only if missing) ---
+try:
+    send_message_v4
+except NameError:
+    def send_message_v4(text: str, parse_mode: str="Markdown", dryrun: bool=None) -> dict:
+        import os
+        if dryrun is None:
+            dryrun = (os.getenv("TELEGRAM_DRYRUN","0") == "1")
+        print("TELEGRAM: DRY (fallback) —", text)
+        return {"status":"dry-fallback","printed":True}
+
+try:
+    _send_start
+except NameError:
+    def _send_start():
+        send_message_v4("Kobe V4 - runner start")
+
+try:
+    _send_stop
+except NameError:
+    def _send_stop(tag="stop"):
+        send_message_v4(f"Kobe V4 - runner {tag}")
+
 import argparse, sys, os, atexit, signal, time
 import yaml
 from pathlib import Path
@@ -162,6 +185,7 @@ def _parse_hhmm(s: str) -> tuple[int, int]:
 
 def main(argv=None):
 
+    _send_start()
     # --- V4 DEMO PROPOSAL (dry-run) ---
     import os
     if os.getenv("DEMO_PROPOSAL","0") == "1":
@@ -326,3 +350,29 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main() or 0)
+    _send_stop("stop (once)")
+
+def _send_start():
+    send_message_v4("Kobe V4 - runner start")
+
+
+def _send_stop(tag="stop"):
+    send_message_v4(f"Kobe V4 - runner {tag}")
+
+# --- V4 once-stop via atexit (robuste, pas de doublon) ---
+def _register_once_stop():
+    import os, atexit
+    if os.getenv("KOBE_ONCE","0") != "1":
+        return
+    def _on_exit_kobe_v4_once():
+        try:
+            send_message_v4("Kobe V4 - runner stop (exit)")
+        except Exception:
+            pass
+    atexit.register(_on_exit_kobe_v4_once)
+
+# Appel d'enregistrement au chargement du module
+try:
+    _register_once_stop()
+except Exception:
+    pass
