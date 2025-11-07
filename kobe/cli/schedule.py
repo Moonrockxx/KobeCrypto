@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote as _q
 from urllib.request import urlopen
+from kobe.execution.proposal import build_spot_proposal
 
 from kobe.core.scheduler import build_scheduler, run_news_job
 from kobe.core.notify import Notifier, TelegramConfig
@@ -113,6 +114,28 @@ def _parse_hhmm(s: str) -> tuple[int, int]:
     return h, m
 
 def main(argv=None):
+
+    # --- V4 DEMO PROPOSAL (dry-run) ---
+    import os
+    if os.getenv("DEMO_PROPOSAL","0") == "1":
+        reasons = [
+            "Trend H4 haussier",
+            "Breakout MA20",
+            "Retest support propre",
+        ]
+        out = build_spot_proposal(
+            symbol="BTCUSDC",
+            side="BUY",
+            entry=100000.0,
+            stop=98000.0,
+            balance_usdc=200.0,
+            reasons=reasons,
+            risk_pct=0.0025,
+            rr=2.0,
+        )
+        # respect TELEGRAM_DRYRUN: ici on ne fait qu'afficher
+        print(out["text"])
+        return
     argv = argv or sys.argv[1:]
     parser = argparse.ArgumentParser(
         prog="kobe schedule",
