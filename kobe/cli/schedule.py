@@ -7,6 +7,53 @@ from urllib.parse import quote as _q
 from urllib.request import urlopen
 from kobe.execution.proposal import build_spot_proposal
 
+
+# --- V4 hardened Telegram sender (inline, ASCII only) ---
+import os, json, urllib.parse, urllib.request
+
+def _tg_env(name: str) -> str:
+    return (os.getenv(name) or "").strip()
+
+def send_message_v4(text: str, parse_mode: str="Markdown", dryrun: bool=None) -> dict:
+    """
+    Envoie un message Telegram avec DRY-run fiable.
+    Variables attendues:
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID
+      - TELEGRAM_DRYRUN=1 pour impression locale uniquement (si dryrun=None)
+    ASCII only recommande pour logs/CI.
+    """
+    token = _tg_env("TELEGRAM_BOT_TOKEN")
+    chat  = _tg_env("TELEGRAM_CHAT_ID")
+    if dryrun is None:
+        dryrun = (_tg_env("TELEGRAM_DRYRUN") == "1")
+
+    if not token or not chat:
+        print("TELEGRAM: DRY (token/chat manquants) — impression locale:")
+        print(text)
+        return {"status":"dry-missing-env","printed":True}
+
+    payload = {
+        "chat_id": chat,
+        "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True
+    }
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    if dryrun:
+        print("TELEGRAM: DRY — POST", url, "payload=", json.dumps(payload, ensure_ascii=True)[:240], "...")
+        print(text)
+        return {"status":"dry","printed":True}
+
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        resp = json.loads(r.read().decode("utf-8"))
+    if not bool(resp.get("ok")):
+        raise RuntimeError(f"Telegram API error: {resp}")
+    return {"status":"sent","message_id": resp["result"]["message_id"]}
+
 from kobe.core.scheduler import build_scheduler, run_news_job
 from kobe.core.notify import Notifier, TelegramConfig
 from kobe.core.factors import get_market_snapshot
@@ -134,7 +181,7 @@ def main(argv=None):
             rr=2.0,
         )
         # respect TELEGRAM_DRYRUN: ici on ne fait qu'afficher
-        print(out["text"])
+        send_message_v4(out["text"])
         return
     argv = argv or sys.argv[1:]
     parser = argparse.ArgumentParser(
