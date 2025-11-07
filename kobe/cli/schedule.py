@@ -1,8 +1,10 @@
 from __future__ import annotations
-import argparse
-import sys
+import argparse, sys, os, atexit, signal, time
 import yaml
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
+from urllib.parse import quote as _q
+from urllib.request import urlopen
 
 from kobe.core.scheduler import build_scheduler, run_news_job
 from kobe.core.notify import Notifier, TelegramConfig
@@ -17,6 +19,52 @@ from pytz import UTC
 from kobe.cli.report import run_report
 from apscheduler.triggers.cron import CronTrigger
 
+LOCK_PATH = "/tmp/kobe_runner.lock"
+HEARTBEAT_MIN = int(os.getenv("HEARTBEAT_MIN", "60"))  # SOP V4: heartbeat optionnel 60'
+TELEGRAM_DRYRUN = os.getenv("TELEGRAM_DRYRUN", "0") == "1"
+
+def _now_utc():
+    return datetime.now(timezone.utc)
+
+def _tg_send_from_cfg(tg_cfg: dict, msg: str):
+    bot = (tg_cfg or {}).get("bot_token", "")
+    chat = (tg_cfg or {}).get("chat_id", "")
+    if not bot or not chat or TELEGRAM_DRYRUN:
+        print(f"[telegram:{'dry' if TELEGRAM_DRYRUN else 'off'}] {msg}")
+        return
+    url = f"https://api.telegram.org/bot{_q(bot)}/sendMessage?chat_id={_q(chat)}&parse_mode=Markdown&text={_q(msg)}"
+    try:
+        with urlopen(url, timeout=10) as r:
+            if r.status != 200:
+                print(f"[telegram:error] HTTP {r.status}", file=sys.stderr)
+    except Exception as e:
+        print(f"[telegram:error] {e}", file=sys.stderr)
+
+def _write_lock_or_exit():
+    # si lock présent et pid encore vivant → on sort sans lancer un doublon
+    if os.path.exists(LOCK_PATH):
+        try:
+            with open(LOCK_PATH, "r") as f:
+                pid = int((f.read() or "0").strip())
+            if pid and pid != os.getpid():
+                try:
+                    os.kill(pid, 0)
+                    print(f"[lock] runner déjà actif (pid={pid})")
+                    sys.exit(0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    with open(LOCK_PATH, "w") as f:
+        f.write(str(os.getpid()))
+
+def _clear_lock():
+    try:
+        if os.path.exists(LOCK_PATH):
+            os.remove(LOCK_PATH)
+    except Exception:
+        pass
+
 def load_cfg(path: str = "config.yaml") -> dict:
     p = Path(path)
     if not p.exists():
@@ -27,7 +75,7 @@ def load_cfg(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 def run_auto_proposal_job(
-    symbol: str = "BTCUSDT",
+    symbol: str = "BTCUSDC",   # V4: défaut USDC
     risk_cfg: RiskConfig | None = None,
     notifier: Notifier | None = None,
     trades_alerts_enabled: bool = False,
@@ -48,12 +96,10 @@ def run_auto_proposal_job(
     log_proposal(p.model_dump())
     msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
     if trades_alerts_enabled and notifier is not None:
-        # Telegram trade-only: envoie le trade si flag activé et notifier dispo
         sent = send_trade(notifier, p, balance_usd=10000.0, leverage=2.0)
         if not sent:
             print(msg)
     else:
-        # Mode par défaut: console uniquement
         print(msg)
 
 def _parse_hhmm(s: str) -> tuple[int, int]:
@@ -66,19 +112,18 @@ def main(argv=None):
     argv = argv or sys.argv[1:]
     parser = argparse.ArgumentParser(
         prog="kobe schedule",
-        description="KobeCrypto V1 — Scheduler principal (veille actus + signaux trades)",
+        description="KobeCrypto V1→V4 — Scheduler durci (news + proposals + reporting + runner notify)",
     )
     parser.add_argument("--once", action="store_true", help="Exécuter une seule fois (debug mode)")
     parser.add_argument("--config", default="config.yaml", help="Chemin vers le fichier config")
-    parser.add_argument("--symbol", default="BTCUSDT", help="Symbole pour l’auto‑proposal (ex: BTCUSDT)")
+    parser.add_argument("--symbol", default="BTCUSDC", help="Symbole pour l’auto-proposal (ex: BTCUSDC)")  # V4
     args = parser.parse_args(argv)
 
     selected_symbol = args.symbol
-
     cfg = load_cfg(args.config)
-    tg_cfg = cfg.get("telegram", {})
-    scheduler_cfg = cfg.get("scheduler", {})
-    news_cfg = cfg.get("news", {})
+    tg_cfg = cfg.get("telegram", {}) or {}
+    scheduler_cfg = cfg.get("scheduler", {}) or {}
+    news_cfg = cfg.get("news", {}) or {}
 
     feeds = news_cfg.get("feeds", [])
     keywords = news_cfg.get("keywords_any", [])
@@ -89,7 +134,7 @@ def main(argv=None):
     try:
         risk_cfg = RiskConfig(**risk_cfg_dict)
     except Exception:
-        risk_cfg = RiskConfig()  # retombe sur défauts sûrs
+        risk_cfg = RiskConfig()  # défauts sûrs
 
     reporting_daily_cfg = cfg.get("reporting", {}).get("daily", {})
     daily_enabled = bool(reporting_daily_cfg.get("enabled", True))
@@ -99,7 +144,7 @@ def main(argv=None):
     alerts_trades_cfg = (cfg.get("alerts", {}) or {}).get("trades", {}) or {}
     trades_alerts_enabled = bool(alerts_trades_cfg.get("enabled", False))
 
-    # Création Notifier si token renseigné (sinon None)
+    # Notifier Telegram si token renseigné
     notifier = None
     if tg_cfg.get("bot_token") and not tg_cfg["bot_token"].startswith("YOUR_"):
         notifier = Notifier(TelegramConfig(**tg_cfg))
@@ -107,59 +152,58 @@ def main(argv=None):
     else:
         print("ℹ️ Mode console (aucun token Telegram renseigné)")
 
-    if args.once:
-        run_news_job(
-            feeds, keywords, max_items, enabled_hours_utc,
+    # === SOP V4: lock + notify start/stop/crash + heartbeat ===
+    def _on_exit(reason="normal"):
+        _clear_lock()
+        _tg_send_from_cfg(tg_cfg, f"🛑 Kobe V4 runner *stop* ({reason}) — {_now_utc().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+    try:
+        _write_lock_or_exit()
+        atexit.register(_on_exit, reason="exit")
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, lambda s, f: (_on_exit(reason=f"signal {s}"), sys.exit(0)))
+
+        _tg_send_from_cfg(tg_cfg, f"▶️ Kobe V4 runner *start* — {_now_utc().strftime('%Y-%m-%d %H:%M:%S UTC')} — interval={interval_minutes}m")
+        if args.once:
+            # run one-shot (news uniquement, conforme V3)
+            run_news_job(feeds, keywords, max_items, enabled_hours_utc, notifier, use_telegram_for_news=False)
+            return 0
+
+        # Scheduler pour news + job auto_proposal
+        sched = build_scheduler(
+            interval_minutes, feeds, keywords, max_items, enabled_hours_utc,
             notifier, use_telegram_for_news=False
         )
-        return 0
 
-    # Scheduler pour news + job auto_proposal
-    sched = build_scheduler(
-        interval_minutes, feeds, keywords, max_items, enabled_hours_utc,
-        notifier, use_telegram_for_news=False
-    )
+        # Ajout heartbeat toutes les HEARTBEAT_MIN (si >0)
+        if HEARTBEAT_MIN > 0:
+            def _hb():
+                print("[heartbeat] alive")
+                _tg_send_from_cfg(tg_cfg, "💓 Runner OK — alive")
+            sched.add_job(_hb, trigger=IntervalTrigger(minutes=HEARTBEAT_MIN, timezone=UTC))
 
-    def _auto_job_wrapper():
-        try:
-            run_auto_proposal_job(selected_symbol, risk_cfg, notifier, trades_alerts_enabled)
-        except Exception as e:
-            print(f"[auto_proposal_job] erreur: {e}")
+        # Keepalive stdout toutes 30s pour debug long-run
+        def _ka():
+            print("[tick] keepalive")
+        from apscheduler.triggers.interval import IntervalTrigger as _I
+        sched.add_job(_ka, trigger=_I(seconds=30, timezone=UTC))
 
-    print("⚙️  Ajout du job auto_proposal (toutes les", interval_minutes, "min)")
-    sched.add_job(
-        _auto_job_wrapper,
-        trigger=IntervalTrigger(minutes=interval_minutes, timezone=UTC),
-        id="auto-proposal",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
+        # Reporting quotidien si activé
+        if daily_enabled:
+            sched.add_job(lambda: run_report(notifier), trigger=CronTrigger(hour=_daily_hr, minute=_daily_min, timezone=UTC))
 
-    if daily_enabled:
-        def _daily_report_wrapper():
-            try:
-                run_report(print_last=True)
-            except Exception as e:
-                print(f"[daily_report] erreur: {e}")
-
-        print(f"📅 Ajout du job daily_report à {_daily_hr:02d}:{_daily_min:02d} UTC")
-        sched.add_job(
-            _daily_report_wrapper,
-            trigger=CronTrigger(hour=_daily_hr, minute=_daily_min, timezone=UTC),
-            id="daily-report",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-
-    print("⏱️ Scheduler lancé — fenêtre UTC:", enabled_hours_utc, f"(toutes les {interval_minutes} min)")
-    try:
+        print("⏱️ Scheduler lancé — fenêtre UTC:", enabled_hours_utc, f"(toutes les {interval_minutes} min)")
         sched.start()
-    except (KeyboardInterrupt, SystemExit):
-        print("🛑 Scheduler arrêté manuellement.")
+        # Boucle d'attente du scheduler (bloquant)
+        try:
+            while True:
+                time.sleep(1)
+        finally:
+            pass
 
-    return 0
+    except Exception as e:
+        _tg_send_from_cfg(tg_cfg, f"❗️Runner crash: `{type(e).__name__}` — {e}")
+        raise
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main() or 0)
