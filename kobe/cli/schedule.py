@@ -79,28 +79,32 @@ def run_auto_proposal_job(
     risk_cfg: RiskConfig | None = None,
     notifier: Notifier | None = None,
     trades_alerts_enabled: bool = False,
-):
-    """Génère automatiquement une proposal à partir des facteurs mock et la log si valide (silencieux Telegram)."""
+) -> bool:
+    """Génère automatiquement une proposal à partir des facteurs mock et renvoie True si un signal a été produit/envoyé."""
     snapshot = get_market_snapshot(symbol)
     p = generate_proposal_from_factors(snapshot)
     if not p:
         print("⚙️  Aucun signal auto détecté.")
-        return
+        return False
     # Garde-fous de risque (avant tout log/affichage)
     if risk_cfg is not None:
         try:
             validate_proposal(p, risk_cfg, is_proposal=True)
         except Exception as e:
             print(f"[auto_proposal] rejet par risk guard: {e}")
-            return
+            return False
     log_proposal(p.model_dump())
     msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
     if trades_alerts_enabled and notifier is not None:
         sent = send_trade(notifier, p, balance_usd=10000.0, leverage=2.0)
-        if not sent:
+        if sent:
+            return True
+        else:
             print(msg)
+            return True
     else:
         print(msg)
+        return True
 
 def _parse_hhmm(s: str) -> tuple[int, int]:
     parts = str(s).strip().split(":")
@@ -129,7 +133,7 @@ def main(argv=None):
     keywords = news_cfg.get("keywords_any", [])
     max_items = news_cfg.get("max_items_per_run", 6)
     enabled_hours_utc = scheduler_cfg.get("enabled_hours_utc", list(range(7,22)))
-    interval_minutes = scheduler_cfg.get("interval_minutes", 15)
+    interval_minutes = int(os.getenv("SCAN_INTERVAL_MIN", str(scheduler_cfg.get("interval_minutes", 10))))
     risk_cfg_dict = cfg.get("risk", {}) or {}
     try:
         risk_cfg = RiskConfig(**risk_cfg_dict)
@@ -174,6 +178,51 @@ def main(argv=None):
             interval_minutes, feeds, keywords, max_items, enabled_hours_utc,
             notifier, use_telegram_for_news=False
         )
+
+        # === V4: Alignement strict + Cooldown anti-doublon ===========================
+        # Forcer un minimum de 5 minutes par SOP
+        try:
+            interval_minutes = max(5, int(interval_minutes))
+        except Exception:
+            interval_minutes = max(5, 10)
+
+        # Cooldown par symbole (min par défaut = 30)
+        COOLDOWN_MIN = int(os.getenv("COOLDOWN_MIN", "30"))
+        LAST_SENT_TS = {}
+
+        def _cooldown_ok(sym: str) -> bool:
+            ts = LAST_SENT_TS.get(sym)
+            if not ts:
+                return True
+            return (_now_utc() - ts) >= timedelta(minutes=COOLDOWN_MIN)
+
+        def _mark_sent(sym: str):
+            LAST_SENT_TS[sym] = _now_utc()
+
+        def _next_aligned(now: datetime, interval_min: int) -> datetime:
+            # Aligne le premier tick sur :00/:10/:20… (ou toute division d'heure)
+            step = max(5, int(interval_min))
+            next_min = ((now.minute // step) + 1) * step
+            aligned = now.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=next_min)
+            if aligned <= now:
+                aligned += timedelta(minutes=step)
+            return aligned
+
+        def _auto_job():
+            sym = selected_symbol
+            if not _cooldown_ok(sym):
+                print(f"[cooldown] skip {sym} (COOLDOWN_MIN={COOLDOWN_MIN})")
+                return
+            produced = run_auto_proposal_job(sym, risk_cfg, notifier, trades_alerts_enabled)
+            if produced:
+                _mark_sent(sym)
+
+        first_run = _next_aligned(_now_utc(), interval_minutes)
+        print(f"🪩 Alignement activé — premier tick à {first_run.strftime('%H:%M:%S UTC')} (interval={interval_minutes}m)")
+
+        from apscheduler.triggers.interval import IntervalTrigger as _I
+        sched.add_job(_auto_job, trigger=_I(minutes=interval_minutes, start_date=first_run, timezone=UTC))
+        # ============================================================================ 
 
         # Ajout heartbeat toutes les HEARTBEAT_MIN (si >0)
         if HEARTBEAT_MIN > 0:
