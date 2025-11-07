@@ -51,3 +51,4 @@ logs/deepseek_billing.json
 logs/signals.jsonl
 .secrets/
 *.env
+kobe/cli/schedule.py.bak.v3
