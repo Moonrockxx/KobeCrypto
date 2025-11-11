@@ -1,10 +1,8 @@
-import os, sys, time, atexit, signal, json
+import os, sys, time, atexit, signal, json, argparse, traceback
 import urllib.request
 from datetime import datetime, timezone
 
 LOCK_PATH = "/tmp/kobe_runner.lock"
-DEFAULT_SCAN_SEC = int(os.getenv("SCAN_INTERVAL_SEC", "600"))  # 10 min par défaut
-HEARTBEAT_SEC = int(os.getenv("HEARTBEAT_SEC", "3600"))        # 60 min par défaut
 
 def load_env_file(path: str):
     if not os.path.isfile(path):
@@ -34,12 +32,11 @@ def send_telegram(text: str):
 def _pid_alive(pid:int)->bool:
     if pid<=0: return False
     try:
-        os.kill(pid, 0)
-        return True
+        os.kill(pid, 0); return True
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True  # process existe mais non autorisé -> on le considère vivant
+        return True
 
 def acquire_lock():
     if os.path.exists(LOCK_PATH):
@@ -70,16 +67,30 @@ def align_next_tick(interval_sec:int):
     now = time.time()
     return now + (interval_sec - (int(now) % interval_sec))
 
-def on_exit(msg="runner stop"):
-    send_telegram(f"🛑 {msg} — {now_utc_str()}")
-    release_lock()
+def install_crash_hook():
+    def _hook(exc_type, exc, tb):
+        try:
+            tail = "".join(traceback.format_exception(exc_type, exc, tb)[-3:])
+            send_telegram(f"💥 runner crash — {now_utc_str()}\n{tail}")
+        finally:
+            release_lock()
+        return sys.__excepthook__(exc_type, exc, tb)
+    sys.excepthook = _hook
 
-def main():
-    # Charger secrets Telegram si présents
+def main(argv=None):
     load_env_file(".secrets/kobe/telegram.env")
+    install_crash_hook()
+
+    parser = argparse.ArgumentParser(prog="kobe.run_v4")
+    parser.add_argument("--interval", type=int, default=int(os.getenv("SCAN_INTERVAL_SEC","600")),
+                        help="Intervalle des ticks en secondes (défaut 600, min 300)")
+    parser.add_argument("--heartbeat", type=int, default=int(os.getenv("HEARTBEAT_SEC","3600")),
+                        help="Intervalle heartbeat Telegram en secondes (défaut 3600)")
+    parser.add_argument("--once", action="store_true", help="Exécuter un tick puis sortir")
+    args = parser.parse_args(argv)
 
     acquire_lock()
-    atexit.register(on_exit)
+    atexit.register(lambda: (send_telegram(f"🛑 runner stop — {now_utc_str()}"), release_lock()))
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: sys.exit(0))
 
@@ -88,18 +99,18 @@ def main():
         print("[runner] Telegram non configuré ou erreur d’envoi", flush=True)
 
     last_heartbeat = 0.0
-    interval = max(300, DEFAULT_SCAN_SEC)  # min 5 min
-    once = "--once" in sys.argv
+    interval = max(300, int(args.interval))
+    hb_sec   = max(5, int(args.heartbeat))  # autorise 5s mini pour tests
 
     while True:
         print(f"[runner] tick @ {now_utc_str()} (interval={interval}s)", flush=True)
 
         now = time.time()
-        if now - last_heartbeat >= HEARTBEAT_SEC:
+        if now - last_heartbeat >= hb_sec:
             send_telegram("💓 Runner OK — heartbeat")
             last_heartbeat = now
 
-        if once:
+        if args.once:
             break
 
         wake = align_next_tick(interval)
