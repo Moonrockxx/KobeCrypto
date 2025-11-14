@@ -1,22 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
-# Activer venv si présent
-if [ -d ".venv" ]; then
-  # shellcheck disable=SC1091
-  source .venv/bin/activate
-fi
-
-# Charger secrets Telegram (jamais commités)
-if [ -f ".secrets/kobe/telegram.env" ]; then
-  while IFS= read -r line; do
-    case "$line" in ''|\#*) continue ;; *=*) export "$line" ;;
-    esac
-  done < .secrets/kobe/telegram.env
-fi
-
-# Paramètres SOP V4 (override via env)
+# Paramètres tunables (avec valeurs par défaut)
 export SCAN_INTERVAL_MIN="${SCAN_INTERVAL_MIN:-10}"
 export COOLDOWN_MIN="${COOLDOWN_MIN:-30}"
 export HEARTBEAT_MIN="${HEARTBEAT_MIN:-60}"
@@ -27,11 +12,30 @@ LOG="${HOME}/kobe_runner.log"
 PID="/tmp/kobe_runner.pid"
 LOCK="/tmp/kobe_runner.lock"
 
-# Nettoyage d’un lock orphelin
+# Mode debug : un seul tick, pas de pid/lock, pas de background
+if [[ "${1:-}" == "--once" ]]; then
+  echo "Mode --once : exécution unique de kobe.cli.schedule"
+  exec python3 -u -m kobe.cli.schedule --once
+fi
+
+# Nettoyage d’un lock orphelin éventuel
 [ -f "$LOCK" ] && rm -f "$LOCK" || true
 
+# Single-instance guard via PID
+if [ -f "$PID" ]; then
+  OLD_PID="$(cat "$PID" 2>/dev/null || echo "")"
+  if [ -n "$OLD_PID" ] && ps -p "$OLD_PID" -o pid= >/dev/null 2>&1; then
+    echo "Runner déjà actif (PID=${OLD_PID}), sortie sans relancer."
+    exit 0
+  fi
+fi
+
+# Création du lock courant (optionnel, juste indicatif)
+echo "$$" > "$LOCK"
+
 # Lancement protégé contre la veille (ne pas enlever -u)
-# Les notifs start/stop/crash sont gérées par schedule.py
+# Les notifs start/stop/crash sont gérées par kobe.cli.schedule
 caffeinate -dimsu python3 -u -m kobe.cli.schedule >> "$LOG" 2>&1 & echo $! > "$PID"
+
 echo "PID: $(cat "$PID")"
 echo "LOG: $LOG"
