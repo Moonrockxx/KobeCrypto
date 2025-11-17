@@ -8,6 +8,7 @@ from kobe.core.risk import validate_proposal, RiskConfig
 from kobe.core.executor import simulate_open
 from kobe.core.secrets import load_env, load_config, merge_env_config, get_exchange_keys
 from kobe.core.modes import current_mode, Mode
+from kobe.execution.binance_spot import BinanceSpot
 from kobe.core.adapter.binance import BinanceAdapter
 
 # Journal des ordres (papier & testnet)
@@ -71,6 +72,7 @@ def place_from_proposal(
     Route une Proposal selon le mode courant :
     - PAPER  : simulate_open() (journal positions) + journal 'orders'
     - TESTNET: adapter.create_order() (mock Binance) + journal 'orders'
+    - LIVE   : BinanceSpot.create_order() (réel, via API spot) + journal 'orders'
     Renvoie (mode, event_dict)
     """
     # Chargement config + mode
@@ -108,8 +110,40 @@ def place_from_proposal(
         _append_order(evt)
         return mode, evt
 
-    # LIVE reste interdit à ce stade (verrou V2)
-    raise RuntimeError("Mode LIVE non supporté dans V2 (verrouillé par design).")
+    if mode == Mode.LIVE:
+        # Exécution réelle via BinanceSpot (spot)
+        ex = BinanceSpot()
+        side = "BUY" if p.side == "long" else "SELL"
+
+        # Prix spot actuel (fallback sur entry si indisponible)
+        price_info = ex.get_price(p.symbol)
+        if isinstance(price_info, dict) and "price" in price_info:
+            try:
+                price = float(price_info["price"])
+            except (TypeError, ValueError):
+                price = float(p.entry)
+        else:
+            price = float(p.entry)
+
+        od = ex.create_order(p.symbol, side, qty)
+
+        order_id = ""
+        status = "UNKNOWN"
+        if isinstance(od, dict):
+            if "error" in od:
+                status = f"ERR:{od.get('error')}"
+            else:
+                order_id = str(od.get("orderId", ""))
+                status = str(od.get("status", "NEW"))
+
+        evt = _build_evt(
+            mode, p, qty, price=price, action="create_order",
+            exchange="binance_spot", order_id=order_id, status=status
+        )
+        _append_order(evt)
+        return mode, evt
+
+    raise RuntimeError("Mode inconnu pour place_from_proposal.")
 
 if __name__ == "__main__":
     # Smoke test simple (PAPER par défaut si MODE non défini dans .env)
