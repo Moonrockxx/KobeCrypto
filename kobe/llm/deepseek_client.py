@@ -3,7 +3,7 @@ import httpx
 
 PRICING_IN  = float(os.getenv("DEEPSEEK_INPUT_EUR_PER_MTOK", "0.5"))
 PRICING_OUT = float(os.getenv("DEEPSEEK_OUTPUT_EUR_PER_MTOK","1.0"))
-BUDGET_EUR  = float(os.getenv("DEEPSEEK_BUDGET_EUR", "50"))
+BUDGET_EUR  = float(os.getenv("DEEPSEEK_BUDGET_EUR", "5"))  # défaut aligné SOP V4
 MODEL       = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 API_KEY     = os.getenv("DEEPSEEK_API_KEY")
 BASE_URL    = "https://api.deepseek.com"
@@ -40,6 +40,21 @@ def chat_complete_json(prompt: str, max_tokens: int = 256, temperature: float = 
     _load_envfile()
     api_key = os.getenv("DEEPSEEK_API_KEY")
     model   = os.getenv("DEEPSEEK_MODEL", MODEL)
+
+    # recharge dynamiquement le pricing et le budget après chargement du .env
+    global PRICING_IN, PRICING_OUT, BUDGET_EUR
+    try:
+        PRICING_IN = float(os.getenv("DEEPSEEK_INPUT_EUR_PER_MTOK", str(PRICING_IN)))
+    except Exception:
+        pass
+    try:
+        PRICING_OUT = float(os.getenv("DEEPSEEK_OUTPUT_EUR_PER_MTOK", str(PRICING_OUT)))
+    except Exception:
+        pass
+    try:
+        BUDGET_EUR = float(os.getenv("DEEPSEEK_BUDGET_EUR", str(BUDGET_EUR)))
+    except Exception:
+        pass
 
     if not api_key:
         return (False, {"error":"missing_api_key"})
