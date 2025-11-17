@@ -69,10 +69,17 @@ class BinanceSpot:
           order_type: MARKET (par défaut)
           quantity: quantité base (ex: 0.01 BTC)
         """
+        # Binance n'accepte pas la notation scientifique; on force un décimal simple.
+        try:
+            q = float(quantity)
+        except (TypeError, ValueError):
+            q = 0.0
+        qty_str = ("%.8f" % q).rstrip("0").rstrip(".")
+
         params = {
             "symbol": symbol,
             "side": side,
             "type": order_type,
-            "quantity": quantity,
+            "quantity": qty_str,
         }
         return self._signed_post("/api/v3/order", params)
