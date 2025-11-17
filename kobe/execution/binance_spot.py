@@ -1,4 +1,4 @@
-import os, hmac, time, hashlib, urllib.parse, urllib.request, json
+import os, hmac, time, hashlib, urllib.parse, urllib.request, urllib.error, json
 
 class BinanceSpot:
     """
@@ -30,3 +30,49 @@ class BinanceSpot:
     def check_account(self):
         """Appel SIGNED simple pour vérifier permissions (si clés set)."""
         return self._signed_get("/api/v3/account", {})
+
+    def _signed_post(self, path, params=None, timeout=8):
+        """POST signé simple (pour create_order)."""
+        if not self.key or not self.secret:
+            return None
+        params = dict(params or {})
+        params["timestamp"] = int(time.time() * 1000)
+        query = urllib.parse.urlencode(params)
+        sig = hmac.new(self.secret.encode(), query.encode(), hashlib.sha256).hexdigest()
+        url = f"{self.base}{path}?{query}&signature={sig}"
+        req = urllib.request.Request(
+            url,
+            method="POST",
+            headers={"X-MBX-APIKEY": self.key}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return {"error": e.code, "message": e.read().decode("utf-8")}
+        except Exception as e:
+            return {"error": "exception", "message": str(e)}
+
+    def get_price(self, symbol: str):
+        """Prix spot simple via /api/v3/ticker/price."""
+        url = f"{self.base}/api/v3/ticker/price?symbol={symbol}"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            return {"error": "exception", "message": str(e)}
+
+    def create_order(self, symbol, side, quantity, order_type="MARKET"):
+        """
+        Exécuter un ordre spot réel:
+          side: BUY ou SELL
+          order_type: MARKET (par défaut)
+          quantity: quantité base (ex: 0.01 BTC)
+        """
+        params = {
+            "symbol": symbol,
+            "side": side,
+            "type": order_type,
+            "quantity": quantity,
+        }
+        return self._signed_post("/api/v3/order", params)
