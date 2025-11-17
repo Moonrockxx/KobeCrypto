@@ -1,4 +1,5 @@
 import os, hmac, time, hashlib, urllib.parse, urllib.request, urllib.error, json
+from decimal import Decimal, ROUND_DOWN
 
 class BinanceSpot:
     """
@@ -69,17 +70,37 @@ class BinanceSpot:
           order_type: MARKET (par défaut)
           quantity: quantité base (ex: 0.01 BTC)
         """
-        # Binance n'accepte pas la notation scientifique; on force un décimal simple.
+        # Normalisation de la quantité pour respecter le LOT_SIZE (stepSize).
+        # On utilise le step défini dans la config (config.yaml: lot_step), avec
+        # un fallback conservateur à 0.001 si absent.
+        step_cfg = os.getenv("KOBE_LOT_STEP")
         try:
-            q = float(quantity)
-        except (TypeError, ValueError):
-            q = 0.0
-        qty_str = ("%.8f" % q).rstrip("0").rstrip(".")
+            from kobe.core.secrets import load_config
+            cfg = load_config("config.yaml")
+            step_val = cfg.get("lot_step", 0.001)
+        except Exception:
+            step_val = 0.001
+
+        if step_cfg:
+            try:
+                step_val = float(step_cfg)
+            except ValueError:
+                pass
+
+        step = Decimal(str(step_val))
+        qty_dec = Decimal(str(quantity))
+
+        # On arrondit toujours à l'inférieur pour ne jamais dépasser la taille calculée
+        qty_rounded = qty_dec.quantize(step, rounding=ROUND_DOWN)
+
+        # Sécurité: si après arrondi la quantité est <= 0, on ne tente pas l'ordre
+        if qty_rounded <= 0:
+            return {"error": "too_small", "message": f"quantity {quantity} too small after lot-size rounding"}
 
         params = {
             "symbol": symbol,
             "side": side,
             "type": order_type,
-            "quantity": qty_str,
+            "quantity": float(qty_rounded),
         }
         return self._signed_post("/api/v3/order", params)

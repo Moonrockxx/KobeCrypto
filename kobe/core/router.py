@@ -84,6 +84,26 @@ def place_from_proposal(
         max_proposal_pct=cfg.get("risk", {}).get("max_proposal_pct", 0.25),
     )
 
+    # Si on est en LIVE, on remplace le balance_usd simulé par le solde réel USDC du compte Binance.
+    if mode == Mode.LIVE:
+        try:
+            ex_bal = BinanceSpot()
+            acc = ex_bal.check_account()
+            quote = env.get("QUOTE_ASSET", "USDC")
+            free = None
+            for b in acc.get("balances", []):
+                if b.get("asset") == quote:
+                    try:
+                        free = float(b.get("free", "0") or 0.0)
+                    except (TypeError, ValueError):
+                        free = 0.0
+                    break
+            if free is not None and free > 0:
+                balance_usd = free
+        except Exception:
+            # En cas d'erreur de récupération du solde, on garde balance_usd tel quel
+            pass
+
     # Risk guard
     validate_proposal(p, rcfg, is_proposal=False)  # on exécute => comparer au plafond 'trade'
 
@@ -148,7 +168,9 @@ def place_from_proposal(
         status = "UNKNOWN"
         if isinstance(od, dict):
             if "error" in od:
-                status = f"ERR:{od.get('error')}"
+                err = od.get("error")
+                msg = od.get("message", "")
+                status = f"ERR:{err}:{msg}"
             else:
                 order_id = str(od.get("orderId", ""))
                 status = str(od.get("status", "NEW"))
