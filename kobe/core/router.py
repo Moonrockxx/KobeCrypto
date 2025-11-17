@@ -90,6 +90,23 @@ def place_from_proposal(
     # Sizing (qty en base)
     qty = position_size(balance_usd, p.risk_pct, p.entry, p.stop, leverage=leverage)
 
+    # Garde de sécurité pour le mode LIVE :
+    # si la quantité est trop petite, on n'envoie pas d'ordre à Binance
+    # (les filtres LOT_SIZE/NOTIONAL rejetteraient l'ordre).
+    if mode == Mode.LIVE and qty < 0.01:
+        evt = _build_evt(
+            mode,
+            p,
+            qty,
+            price=p.entry,
+            action="skip_too_small",
+            exchange="binance_spot",
+            order_id="",
+            status="TOO_SMALL",
+        )
+        _append_order(evt)
+        return mode, evt
+
     if mode == Mode.PAPER:
         # simulateur local
         open_evt = simulate_open(p, balance_usd=balance_usd, leverage=leverage)
@@ -149,7 +166,7 @@ if __name__ == "__main__":
     # Smoke test simple (PAPER par défaut si MODE non défini dans .env)
     from kobe.signals.proposal import Proposal
     demo = Proposal(
-        symbol="BTCUSDT", side="long",
+        symbol="BTCUSDC", side="long",
         entry=68000.0, stop=67200.0, take=69600.0,
         risk_pct=0.25, size_pct=5.0,
         reasons=["A","B","C"]
