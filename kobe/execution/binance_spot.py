@@ -1,6 +1,23 @@
 import os, hmac, time, hashlib, urllib.parse, urllib.request, urllib.error, json
 from decimal import Decimal, ROUND_DOWN
 
+def _log_executor_event(event: dict, path: str | None = None) -> None:
+    """
+    Journalisation minimaliste des appels exécuteur dans logs/executor.jsonl.
+
+    - path: permet de surcharger le chemin pour des tests si besoin.
+    - en cas d'erreur de fichier, on ne fait qu'ignorer (pas de crash exécuteur).
+    """
+    try:
+        log_path = path or os.getenv("KOBE_EXECUTOR_LOG", "logs/executor.jsonl")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            json.dump(event, f, ensure_ascii=False)
+            f.write("\n")
+    except Exception:
+        # On ne doit jamais faire planter l'exécuteur à cause de la journalisation
+        return
+
 class BinanceSpot:
     """
     Squelette dry-run: expose check_account() pour valider la signature
@@ -95,6 +112,16 @@ class BinanceSpot:
 
         # Sécurité: si après arrondi la quantité est <= 0, on ne tente pas l'ordre
         if qty_rounded <= 0:
+            ev = {
+                "ts": int(time.time() * 1000),
+                "symbol": symbol,
+                "side": side,
+                "qty_original": float(quantity),
+                "qty_rounded": float(qty_rounded),
+                "order_type": order_type,
+                "status": "too_small",
+            }
+            _log_executor_event(ev)
             return {"error": "too_small", "message": f"quantity {quantity} too small after lot-size rounding"}
 
         params = {
@@ -103,4 +130,19 @@ class BinanceSpot:
             "type": order_type,
             "quantity": float(qty_rounded),
         }
-        return self._signed_post("/api/v3/order", params)
+
+        resp = self._signed_post("/api/v3/order", params)
+
+        ev = {
+            "ts": int(time.time() * 1000),
+            "symbol": symbol,
+            "side": side,
+            "qty_original": float(quantity),
+            "qty_rounded": float(qty_rounded),
+            "order_type": order_type,
+            "params": params,
+            "response": resp,
+        }
+        _log_executor_event(ev)
+
+        return resp
