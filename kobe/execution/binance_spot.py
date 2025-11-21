@@ -80,7 +80,7 @@ class BinanceSpot:
         except Exception as e:
             return {"error": "exception", "message": str(e)}
 
-    def create_order(self, symbol, side, quantity, order_type="MARKET"):
+    def create_order(self, symbol, side, quantity, order_type="MARKET", take_price=None, stop_price=None):
         """
         Exécuter un ordre spot réel:
           side: BUY ou SELL
@@ -174,6 +174,8 @@ class BinanceSpot:
             "qty_original": float(quantity),
             "qty_rounded": float(qty_rounded),
             "order_type": order_type,
+            "take_price": float(take_price) if take_price is not None else None,
+            "stop_price": float(stop_price) if stop_price is not None else None,
             "params": params,
             "response": resp,
         }
