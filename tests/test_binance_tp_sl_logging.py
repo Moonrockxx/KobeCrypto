@@ -12,6 +12,10 @@ def test_tp_sl_are_logged(monkeypatch, tmp_path):
     os.environ["BINANCE_API_KEY"] = ""
     os.environ["BINANCE_API_SECRET"] = ""
 
+    # 3) Désactiver explicitement le kill-switch pour ce test
+    os.environ["MAX_DAILY_LOSS_EUR"] = "0"
+    os.environ["KOBE_DAILY_LOSS_EUR"] = "0"
+
     def fake_signed_post(self, path, params=None, timeout=8):
         # On simule une réponse 'binance' sans toucher au réseau
         return {"orderId": 123456, "status": "NEW", "symbol": params.get("symbol")}
