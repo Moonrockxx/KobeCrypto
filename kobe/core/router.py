@@ -162,7 +162,7 @@ def place_from_proposal(
         else:
             price = float(p.entry)
 
-        od = ex.create_order(p.symbol, side, qty)
+        od = ex.create_order(p.symbol, side, qty, take_price=p.take, stop_price=p.stop)
 
         order_id = ""
         status = "UNKNOWN"
