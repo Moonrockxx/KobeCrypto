@@ -87,6 +87,40 @@ class BinanceSpot:
           order_type: MARKET (par défaut)
           quantity: quantité base (ex: 0.01 BTC)
         """
+        # Kill-switch journalier basé sur la perte en EUR.
+        #
+        # MAX_DAILY_LOSS_EUR : limite journalière (en EUR) configurée via l'env
+        # KOBE_DAILY_LOSS_EUR : perte courante du jour (en EUR, valeur négative)
+        max_daily_loss_env = os.getenv("MAX_DAILY_LOSS_EUR")
+        try:
+            max_daily_loss = float(max_daily_loss_env) if max_daily_loss_env else 0.0
+        except ValueError:
+            max_daily_loss = 0.0
+
+        current_daily_loss_env = os.getenv("KOBE_DAILY_LOSS_EUR")
+        try:
+            current_daily_loss = float(current_daily_loss_env) if current_daily_loss_env else 0.0
+        except ValueError:
+            current_daily_loss = 0.0
+
+        # Si la perte courante est <= -MAX_DAILY_LOSS_EUR, on bloque tout nouvel ordre.
+        if max_daily_loss > 0 and current_daily_loss <= -max_daily_loss:
+            ev = {
+                "ts": int(time.time() * 1000),
+                "symbol": symbol,
+                "side": side,
+                "qty_original": float(quantity),
+                "order_type": order_type,
+                "status": "kill_switch_blocked",
+                "max_daily_loss_eur": max_daily_loss,
+                "current_daily_loss_eur": current_daily_loss,
+            }
+            _log_executor_event(ev)
+            return {
+                "error": "kill_switch",
+                "message": "Daily loss limit exceeded, refusing new orders.",
+            }
+
         # Normalisation de la quantité pour respecter le LOT_SIZE (stepSize).
         # On utilise le step défini dans la config (config.yaml: lot_step), avec
         # un fallback conservateur à 0.001 si absent.
