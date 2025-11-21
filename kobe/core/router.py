@@ -166,8 +166,13 @@ def place_from_proposal(
 
         order_id = ""
         status = "UNKNOWN"
+        action = "create_order"
         if isinstance(od, dict):
-            if "error" in od:
+            # Cas particulier : kill-switch journalier activé côté exécuteur
+            if od.get("error") == "kill_switch":
+                status = "KILL_SWITCH"
+                action = "kill_switch_blocked"
+            elif "error" in od:
                 err = od.get("error")
                 msg = od.get("message", "")
                 status = f"ERR:{err}:{msg}"
@@ -176,7 +181,7 @@ def place_from_proposal(
                 status = str(od.get("status", "NEW"))
 
         evt = _build_evt(
-            mode, p, qty, price=price, action="create_order",
+            mode, p, qty, price=price, action=action,
             exchange="binance_spot", order_id=order_id, status=status
         )
         _append_order(evt)
