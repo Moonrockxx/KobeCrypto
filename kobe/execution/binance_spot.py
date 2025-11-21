@@ -153,6 +153,213 @@ class BinanceSpot:
         plan["valid"] = True
         return plan
 
+    def execute_order_plan(self, plan: dict):
+        """Exécuter un plan d'ordres construit par build_order_plan().
+
+        Cette méthode est ADDITIVE par rapport à create_order(): elle n'en modifie
+        pas le comportement. Elle prend un plan déjà validé (qty_rounded,
+        entry/take_profit/stop_loss) et tente d'envoyer les ordres correspondants
+        sur l'API spot Binance.
+
+        - Si le plan est invalide (valid=False, qty_rounded<=0, symbol/side manquant),
+          on journalise et on retourne une erreur sans appel réseau.
+        - Kill-switch: on réapplique la même logique de limite journalière que
+          create_order() avant de lancer l'ordre d'entrée.
+        - On suppose un flux LONG classique (side=BUY) : les ordres de sortie
+          (TP/SL) sont des SELL de la même quantité. Pour side=SELL, la méthode
+          utilise l'inverse (BUY) pour la clôture.
+        """
+        ts = int(time.time() * 1000)
+
+        symbol = plan.get("symbol")
+        side = plan.get("side")
+        qty = plan.get("qty_rounded")
+        is_valid = plan.get("valid", False)
+
+        # Validation minimale du plan reçu.
+        if not is_valid or not symbol or not side or qty is None:
+            ev = {
+                "ts": ts,
+                "symbol": symbol,
+                "side": side,
+                "qty_rounded": float(qty) if qty is not None else None,
+                "status": "plan_invalid",
+                "reason": "missing_fields_or_not_valid",
+            }
+            _log_executor_event(ev)
+            return {
+                "error": "invalid_plan",
+                "message": "order plan is invalid or incomplete",
+                "event": ev,
+            }
+
+        try:
+            qty_float = float(qty)
+        except (TypeError, ValueError):
+            qty_float = 0.0
+
+        if qty_float <= 0:
+            ev = {
+                "ts": ts,
+                "symbol": symbol,
+                "side": side,
+                "qty_rounded": qty_float,
+                "status": "plan_invalid",
+                "reason": "non_positive_quantity",
+            }
+            _log_executor_event(ev)
+            return {
+                "error": "invalid_plan",
+                "message": "non-positive quantity in order plan",
+                "event": ev,
+            }
+
+        # Kill-switch journalier basé sur la perte en EUR (copie de create_order).
+        max_daily_loss_env = os.getenv("MAX_DAILY_LOSS_EUR")
+        try:
+            max_daily_loss = float(max_daily_loss_env) if max_daily_loss_env else 0.0
+        except ValueError:
+            max_daily_loss = 0.0
+
+        current_daily_loss_env = os.getenv("KOBE_DAILY_LOSS_EUR")
+        try:
+            current_daily_loss = float(current_daily_loss_env) if current_daily_loss_env else 0.0
+        except ValueError:
+            current_daily_loss = 0.0
+
+        if max_daily_loss > 0 and current_daily_loss <= -max_daily_loss:
+            ev = {
+                "ts": ts,
+                "symbol": symbol,
+                "side": side,
+                "qty_rounded": qty_float,
+                "status": "kill_switch_blocked_plan",
+                "max_daily_loss_eur": max_daily_loss,
+                "current_daily_loss_eur": current_daily_loss,
+            }
+            _log_executor_event(ev)
+            return {
+                "error": "kill_switch",
+                "message": "Daily loss limit exceeded, refusing to execute order plan.",
+                "event": ev,
+            }
+
+        # Construction des ordres d'après le plan.
+        orders_resp: dict[str, object] = {
+            "entry": None,
+            "take_profit": None,
+            "stop_loss": None,
+        }
+
+        # Ordre d'entrée (type par défaut = plan["order_type"] ou MARKET).
+        entry_info = plan.get("entry") or {}
+        order_type = entry_info.get("type", plan.get("order_type", "MARKET"))
+
+        entry_params = {
+            "symbol": symbol,
+            "side": side,
+            "type": order_type,
+            "quantity": qty_float,
+        }
+
+        # Pour un LIMIT d'entrée, on utilise le prix d'entry du plan.
+        if order_type == "LIMIT":
+            price = entry_info.get("price")
+            if price is not None:
+                try:
+                    entry_params["price"] = float(price)
+                    entry_params["timeInForce"] = "GTC"
+                except (TypeError, ValueError):
+                    # Si le prix est invalide, on laisse Binance répondre une erreur.
+                    pass
+
+        resp_entry = self._signed_post("/api/v3/order", entry_params)
+        ev_entry = {
+            "ts": ts,
+            "kind": "entry",
+            "symbol": symbol,
+            "side": side,
+            "order_type": order_type,
+            "qty_rounded": qty_float,
+            "params": entry_params,
+            "response": resp_entry,
+        }
+        _log_executor_event(ev_entry)
+        orders_resp["entry"] = resp_entry
+
+        # Pour les ordres de sortie, on inverse le side (BUY → SELL, SELL → BUY).
+        side_upper = str(side).upper()
+        close_side = "SELL" if side_upper == "BUY" else "BUY"
+
+        # Take-profit : LIMIT @ price, quantité complète.
+        tp_info = plan.get("take_profit")
+        if tp_info is not None:
+            tp_price = tp_info.get("price")
+            tp_params = {
+                "symbol": symbol,
+                "side": close_side,
+                "type": "LIMIT",
+                "quantity": qty_float,
+            }
+            try:
+                if tp_price is not None:
+                    tp_params["price"] = float(tp_price)
+                    tp_params["timeInForce"] = "GTC"
+            except (TypeError, ValueError):
+                # On laisse Binance renvoyer une erreur si le prix est invalide.
+                pass
+
+            resp_tp = self._signed_post("/api/v3/order", tp_params)
+            ev_tp = {
+                "ts": ts,
+                "kind": "take_profit",
+                "symbol": symbol,
+                "side": close_side,
+                "qty_rounded": qty_float,
+                "params": tp_params,
+                "response": resp_tp,
+            }
+            _log_executor_event(ev_tp)
+            orders_resp["take_profit"] = resp_tp
+
+        # Stop-loss : STOP_LOSS_LIMIT @ price/stopPrice, quantité complète.
+        sl_info = plan.get("stop_loss")
+        if sl_info is not None:
+            sl_price = sl_info.get("price")
+            sl_params = {
+                "symbol": symbol,
+                "side": close_side,
+                "type": "STOP_LOSS_LIMIT",
+                "quantity": qty_float,
+            }
+            try:
+                if sl_price is not None:
+                    price_val = float(sl_price)
+                    sl_params["price"] = price_val
+                    sl_params["stopPrice"] = price_val
+                    sl_params["timeInForce"] = "GTC"
+            except (TypeError, ValueError):
+                # Même logique: Binance renverra une erreur si le prix est invalide.
+                pass
+
+            resp_sl = self._signed_post("/api/v3/order", sl_params)
+            ev_sl = {
+                "ts": ts,
+                "kind": "stop_loss",
+                "symbol": symbol,
+                "side": close_side,
+                "qty_rounded": qty_float,
+                "params": sl_params,
+                "response": resp_sl,
+            }
+            _log_executor_event(ev_sl)
+            orders_resp["stop_loss"] = resp_sl
+
+        return {
+            "plan": plan,
+            "orders": orders_resp,
+        }
+
     def create_order(self, symbol, side, quantity, order_type="MARKET", take_price=None, stop_price=None):
         """
         Exécuter un ordre spot réel:
