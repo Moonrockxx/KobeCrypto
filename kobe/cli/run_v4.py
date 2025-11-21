@@ -101,12 +101,13 @@ def main(argv=None):
     last_heartbeat = 0.0
     interval = max(300, int(args.interval))
     hb_sec   = max(5, int(args.heartbeat))  # autorise 5s mini pour tests
+    heartbeat_enabled = str(os.getenv("KOBE_RUNNER_HEARTBEAT", "0")).lower() in ("1", "true", "yes")
 
     while True:
         print(f"[runner] tick @ {now_utc_str()} (interval={interval}s)", flush=True)
 
         now = time.time()
-        if now - last_heartbeat >= hb_sec:
+        if heartbeat_enabled and now - last_heartbeat >= hb_sec:
             send_telegram("💓 Runner OK — heartbeat")
             last_heartbeat = now
 
