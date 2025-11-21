@@ -80,6 +80,79 @@ class BinanceSpot:
         except Exception as e:
             return {"error": "exception", "message": str(e)}
 
+    def build_order_plan(self, symbol, side, quantity, entry_price, take_price=None, stop_price=None, order_type="MARKET"):
+        """
+        Construire un plan d'ordres (entry/TP/SL) sans exécuter quoi que ce soit.
+
+        Cette méthode est purement déclarative: elle applique la même logique
+        de normalisation de quantité que create_order(), puis retourne une
+        structure décrivant les 3 blocs d'ordres:
+          - entry: ordre d'entrée (actuellement type=order_type, ex: MARKET)
+          - take_profit: LIMIT @ take_price (si fourni)
+          - stop_loss: STOP_LIMIT @ stop_price (si fourni)
+        """
+        # Normalisation de la quantité pour respecter le LOT_SIZE (stepSize).
+        # On réutilise la même logique que dans create_order, en la dupliquant
+        # ici pour ne pas dépendre d'effets de bord réseau.
+        step_cfg = os.getenv("KOBE_LOT_STEP")
+        try:
+            from kobe.core.secrets import load_config
+            cfg = load_config("config.yaml")
+            step_val = cfg.get("lot_step", 0.001)
+        except Exception:
+            step_val = 0.001
+
+        if step_cfg:
+            try:
+                step_val = float(step_cfg)
+            except ValueError:
+                pass
+
+        step = Decimal(str(step_val))
+        qty_dec = Decimal(str(quantity))
+
+        qty_rounded = qty_dec.quantize(step, rounding=ROUND_DOWN)
+
+        # Si après arrondi la quantité est <= 0, on signale un plan invalide.
+        if qty_rounded <= 0:
+            return {
+                "symbol": symbol,
+                "side": side,
+                "qty_original": float(quantity),
+                "qty_rounded": float(qty_rounded),
+                "valid": False,
+                "reason": "too_small",
+            }
+
+        plan = {
+            "symbol": symbol,
+            "side": side,
+            "qty_original": float(quantity),
+            "qty_rounded": float(qty_rounded),
+            "order_type": order_type,
+            "entry": {
+                "type": order_type,
+                "price": float(entry_price),
+            },
+            "take_profit": None,
+            "stop_loss": None,
+        }
+
+        if take_price is not None:
+            plan["take_profit"] = {
+                "type": "LIMIT",
+                "price": float(take_price),
+            }
+
+        if stop_price is not None:
+            plan["stop_loss"] = {
+                "type": "STOP_LIMIT",
+                "price": float(stop_price),
+            }
+
+        plan["valid"] = True
+        return plan
+
     def create_order(self, symbol, side, quantity, order_type="MARKET", take_price=None, stop_price=None):
         """
         Exécuter un ordre spot réel:
