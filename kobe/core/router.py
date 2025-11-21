@@ -164,6 +164,36 @@ def place_from_proposal(
 
         od = ex.create_order(p.symbol, side, qty, take_price=p.take, stop_price=p.stop)
 
+        # --- V4: construction du plan complet entry/TP/SL (sans exécution) ---
+        try:
+            plan = ex.build_order_plan(
+                symbol=p.symbol,
+                side=side,
+                quantity=qty,
+                entry_price=p.entry,
+                take_price=p.take,
+                stop_price=p.stop,
+                order_type="MARKET",
+            )
+            plan_evt = {
+                "ts": _ts_ms(),
+                "mode": mode.value,
+                "symbol": p.symbol,
+                "side": p.side,
+                "qty": float(qty),
+                "price": float(p.entry),
+                "router_action": "order_plan_built",
+                "exchange": "binance_spot",
+                "order_id": "",
+                "status": "PLAN_ONLY",
+                "risk_pct": float(p.risk_pct),
+                "size_pct": float(p.size_pct),
+                "order_plan": plan,
+            }
+            _append_order(plan_evt)
+        except Exception:
+            pass
+
         order_id = ""
         status = "UNKNOWN"
         action = "create_order"
