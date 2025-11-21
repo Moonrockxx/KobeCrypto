@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, json, time
+import csv, json, time, os
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
@@ -152,6 +152,104 @@ def place_from_proposal(
         ex = BinanceSpot()
         side = "BUY" if p.side == "long" else "SELL"
 
+        # Feature flag : exécution du plan complet (entry + TP + SL).
+        # Par défaut, on conserve le comportement historique (create_order).
+        execute_plan_flag_raw = env.get("EXECUTE_ORDER_PLAN") or os.getenv("KOBE_EXECUTE_PLAN")
+        execute_plan_flag = str(execute_plan_flag_raw).lower() in ("1", "true", "yes")
+
+        if execute_plan_flag:
+            # Prix spot actuel (fallback sur entry si indisponible)
+            price_info = ex.get_price(p.symbol)
+            if isinstance(price_info, dict) and "price" in price_info:
+                try:
+                    price = float(price_info["price"])
+                except (TypeError, ValueError):
+                    price = float(p.entry)
+            else:
+                price = float(p.entry)
+
+            plan = None
+            try:
+                plan = ex.build_order_plan(
+                    symbol=p.symbol,
+                    side=side,
+                    quantity=qty,
+                    entry_price=p.entry,
+                    take_price=p.take,
+                    stop_price=p.stop,
+                    order_type="MARKET",
+                )
+            except Exception:
+                # En cas d'erreur de construction du plan, on journalise et on retombe
+                # sur le chemin create_order() classique pour ne rien casser.
+                plan_evt = {
+                    "ts": _ts_ms(),
+                    "mode": mode.value,
+                    "symbol": p.symbol,
+                    "side": p.side,
+                    "qty": float(qty),
+                    "price": float(p.entry),
+                    "router_action": "order_plan_error",
+                    "exchange": "binance_spot",
+                    "order_id": "",
+                    "status": "PLAN_ERROR",
+                    "risk_pct": float(p.risk_pct),
+                    "size_pct": float(p.size_pct),
+                }
+                _append_order(plan_evt)
+                execute_plan_flag = False  # fallback
+
+            if execute_plan_flag and plan and plan.get("valid"):
+                # journal du plan avant exécution
+                plan_evt = {
+                    "ts": _ts_ms(),
+                    "mode": mode.value,
+                    "symbol": p.symbol,
+                    "side": p.side,
+                    "qty": float(qty),
+                    "price": float(p.entry),
+                    "router_action": "order_plan_execute",
+                    "exchange": "binance_spot",
+                    "order_id": "",
+                    "status": "PLAN_EXECUTE",
+                    "risk_pct": float(p.risk_pct),
+                    "size_pct": float(p.size_pct),
+                    "order_plan": plan,
+                }
+                _append_order(plan_evt)
+
+                od = ex.execute_order_plan(plan)
+                order_id = ""
+                status = "UNKNOWN"
+                action = "execute_order_plan"
+                if isinstance(od, dict):
+                    if od.get("error") == "kill_switch":
+                        status = "KILL_SWITCH"
+                        action = "kill_switch_blocked_plan"
+                    elif "error" in od:
+                        err = od.get("error")
+                        msg = od.get("message", "")
+                        status = f"ERR:{err}:{msg}"
+                    else:
+                        orders = od.get("orders") or {}
+                        entry_resp = orders.get("entry") or {}
+                        if isinstance(entry_resp, dict):
+                            order_id = str(entry_resp.get("orderId", ""))
+                            status = str(entry_resp.get("status", "NEW"))
+                        else:
+                            status = "OK"
+
+                evt = _build_evt(
+                    mode, p, qty, price=price, action=action,
+                    exchange="binance_spot", order_id=order_id, status=status
+                )
+                _append_order(evt)
+                return mode, evt
+
+            # fallback si plan invalide ou erreur : on garde l'ancien chemin
+            # (pas de return ici, on laisse tomber dans le bloc suivant)
+
+        # Ancien comportement LIVE (par défaut / fallback)
         # Prix spot actuel (fallback sur entry si indisponible)
         price_info = ex.get_price(p.symbol)
         if isinstance(price_info, dict) and "price" in price_info:
