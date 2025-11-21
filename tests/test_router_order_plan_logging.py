@@ -17,6 +17,13 @@ def test_router_builds_order_plan_in_live(monkeypatch):
 
     monkeypatch.setattr(router, "current_mode", fake_current_mode, raising=True)
 
+    # Éviter toute dépendance au fichier config.yaml pendant ce test
+    def fake_load_config(path="config.yaml"):
+        # On renvoie une config minimale ; on teste le routage, pas le fichier de config
+        return {}
+
+    monkeypatch.setattr(router, "load_config", fake_load_config, raising=True)
+
     # 3) Forcer une taille de position suffisante pour ne PAS tomber dans TOO_SMALL
     def fake_position_size(balance_usd, risk_pct, entry, stop, leverage=1.0):
         # Par ex. 0.05 BTC
