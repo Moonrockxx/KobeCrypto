@@ -1,9 +1,11 @@
 from __future__ import annotations
-import argparse, sys
+import argparse, sys, os
 from typing import List
 from kobe.signals.proposal import Proposal
 from kobe.core.router import place_from_proposal
 from kobe.core.risk import RiskConfig
+from kobe.core.trade_alerts import send_execution_event
+from kobe.core.notify import Notifier, TelegramConfig
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
@@ -49,6 +51,35 @@ def main(argv: List[str] | None = None) -> int:
             risk_cfg=RiskConfig(max_trade_pct=0.5, max_proposal_pct=0.25),
         )
         print(f"✅  Mode: {mode.value.upper()} — statut: {evt['status']} — ordre enregistré.")
+
+        # Notification Telegram en LIVE si possible (utilise send_execution_event).
+        try:
+            mode_str = str(getattr(mode, "value", mode)).upper()
+        except Exception:
+            mode_str = "UNKNOWN"
+
+        if mode_str == "LIVE":
+            tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+            tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+            notifier = None
+            if tg_token and tg_chat:
+                try:
+                    cfg = TelegramConfig(bot_token=tg_token, chat_id=tg_chat)
+                    notifier = Notifier(cfg)
+                except Exception as e_init:
+                    print(f"[trade] échec init Notifier Telegram: {e_init}")
+            try:
+                # send_execution_event gère le cas notifier=None (print stdout)
+                send_execution_event(
+                    notifier,
+                    p,
+                    evt,
+                    balance_usd=args.balance_usd,
+                    leverage=args.leverage,
+                )
+            except Exception as e_exec:
+                print(f"[trade] erreur send_execution_event: {e_exec}")
+
         return 0
     except Exception as e:
         print(f"❌  Erreur: {e}")
