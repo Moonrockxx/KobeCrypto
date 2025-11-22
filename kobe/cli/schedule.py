@@ -84,7 +84,8 @@ from kobe.signals.generator import generate_proposal_from_factors
 from kobe.signals.proposal import format_proposal_for_telegram
 from kobe.core.journal import log_proposal
 from kobe.core.risk import validate_proposal, RiskConfig
-from kobe.core.trade_alerts import send_trade
+from kobe.core.trade_alerts import send_trade, send_execution_event
+from kobe.core.router import place_from_proposal
 from apscheduler.triggers.interval import IntervalTrigger
 from pytz import UTC
 from kobe.cli.report import run_report
@@ -151,12 +152,18 @@ def run_auto_proposal_job(
     notifier: Notifier | None = None,
     trades_alerts_enabled: bool = False,
 ) -> bool:
-    """Génère automatiquement une proposal à partir des facteurs mock et renvoie True si un signal a été produit/envoyé."""
+    """Génère automatiquement une proposal à partir des facteurs mock et renvoie True si un signal a été produit/envoyé.
+
+    V4: en mode LIVE + alerts activées, tente une exécution via le router
+    (place_from_proposal) puis envoie un message d'exécution. En modes non-LIVE
+    ou si pas de notifier, reste en simple signal.
+    """
     snapshot = get_market_snapshot(symbol)
     p = generate_proposal_from_factors(snapshot)
     if not p:
         print("⚙️  Aucun signal auto détecté.")
         return False
+
     # Garde-fous de risque (avant tout log/affichage)
     if risk_cfg is not None:
         try:
@@ -164,18 +171,49 @@ def run_auto_proposal_job(
         except Exception as e:
             print(f"[auto_proposal] rejet par risk guard: {e}")
             return False
+
+    # Log de la proposal brute
     log_proposal(p.model_dump())
+
+    # Message "signal" historique
     msg = format_proposal_for_telegram(p, balance_usd=10000.0, leverage=2.0)
+
+    # V4: tentative d'exécution auto via router si alerts activées + notifier présent
+    evt: dict | None = None
     if trades_alerts_enabled and notifier is not None:
+        try:
+            mode, evt = place_from_proposal(
+                p,
+                balance_usd=10000.0,
+                leverage=2.0,
+            )
+        except Exception as e:
+            print(f"[auto_proposal] erreur execution auto via router: {e}")
+            evt = None
+
+    if trades_alerts_enabled and notifier is not None:
+        # Si une exécution (ou au moins un plan) a été produite, on envoie le message d'exécution
+        if evt is not None:
+            send_execution_event(
+                notifier,
+                p,
+                evt,
+                balance_usd=10000.0,
+                leverage=2.0,
+            )
+            return True
+
+        # Sinon on retombe sur le comportement historique: simple signal Telegram
         sent = send_trade(notifier, p, balance_usd=10000.0, leverage=2.0)
         if sent:
             return True
         else:
             print(msg)
             return True
-    else:
-        print(msg)
-        return True
+
+    # Pas de notifier ou alerts désactivées: simple print
+    print(msg)
+    return True
 
 def _parse_hhmm(s: str) -> tuple[int, int]:
     parts = str(s).strip().split(":")
