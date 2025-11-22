@@ -1,40 +1,50 @@
 from __future__ import annotations
-import math, time, random
 from typing import Dict, Any
 
+from kobe.execution.binance_spot import BinanceSpot
+
 def get_market_snapshot(symbol: str = "BTCUSDT") -> Dict[str, Any]:
+    """Retourne un snapshot de marché basé sur le prix spot réel Binance.
+
+    - `price` est le dernier prix spot retourné par `/api/v3/ticker/price`.
+    - Les autres facteurs (trend_strength, funding_bias, volatility, btc_dominance,
+      news_sentiment) sont laissés neutres (0.0) en attendant un scanner plus riche.
+
+    Si l'appel réseau échoue ou que le prix est invalide, `price` vaut 0.0 et
+    l'appelant est libre de ne pas générer de signal.
     """
-    Fournit un snapshot déterministe (mock) des facteurs de marché pour V1.
-    - price varie légèrement autour d'un pivot fixe
-    - les autres facteurs oscillent de manière stable (sinusoïdes)
-    """
-    base_prices = {"BTCUSDT": 68000.0, "ETHUSDT": 2400.0, "SOLUSDT": 180.0}
-    base = base_prices.get(symbol.upper(), 1000.0)
-    now = time.time()
-    cycle = math.sin(now / 600.0)  # oscillation ~10min
+    sym = symbol.upper()
 
-    # variation faible de prix ±0.3 %
-    price = base * (1 + 0.003 * cycle)
+    # Utilise l'adaptateur BinanceSpot pour récupérer le prix spot public.
+    spot = BinanceSpot()
+    price: float = 0.0
+    try:
+        resp = spot.get_price(sym)
+        if isinstance(resp, dict):
+            raw_price = resp.get("price")
+            if raw_price is not None:
+                try:
+                    price = float(raw_price)
+                except (TypeError, ValueError):
+                    price = 0.0
+    except Exception:
+        # En cas d'erreur réseau ou autre, on laisse price=0.0
+        price = 0.0
 
-    # facteurs pseudo-stables pour test
-    trend_strength = round(cycle, 3)
-    funding_bias = round(math.sin(now / 900.0) * 0.3, 3)
-    volatility = round(abs(math.sin(now / 1200.0)), 3)
-    btc_dominance = round(0.55 + 0.05 * math.sin(now / 1800.0), 3)
-    news_sentiment = round(math.sin(now / 1500.0), 3)
-
-    snapshot = {
-        "symbol": symbol.upper(),
+    snapshot: Dict[str, Any] = {
+        "symbol": sym,
         "price": price,
-        "trend_strength": trend_strength,
-        "funding_bias": funding_bias,
-        "volatility": volatility,
-        "btc_dominance": btc_dominance,
-        "news_sentiment": news_sentiment,
+        # Facteurs neutres (aucune donnée factice) en attendant mieux
+        "trend_strength": 0.0,
+        "funding_bias": 0.0,
+        "volatility": 0.0,
+        "btc_dominance": 0.0,
+        "news_sentiment": 0.0,
     }
     return snapshot
 
-# Test local (doit afficher un dict stable)
+
 if __name__ == "__main__":
+    # Test rapide: imprime un snapshot LIVE pour inspection manuelle.
     snap = get_market_snapshot("ETHUSDT")
-    print("✅ Facteurs mock:", snap)
+    print("✅ Snapshot marché:", snap)
