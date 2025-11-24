@@ -82,6 +82,7 @@ from kobe.core.notify import Notifier, TelegramConfig
 from kobe.core.factors import get_market_snapshot
 from kobe.signals.generator import generate_proposal_from_factors
 from kobe.signals.proposal import format_proposal_for_telegram
+from kobe.llm.signal_review import review_signal
 from kobe.core.journal import log_proposal
 from kobe.core.risk import validate_proposal, RiskConfig
 from kobe.core.trade_alerts import send_trade, send_execution_event
@@ -151,6 +152,7 @@ def run_auto_proposal_job(
     risk_cfg: RiskConfig | None = None,
     notifier: Notifier | None = None,
     trades_alerts_enabled: bool = False,
+    referee_enabled: bool = False,
 ) -> bool:
     """Génère automatiquement une proposal à partir des facteurs mock et renvoie True si un signal a été produit/envoyé.
 
@@ -163,6 +165,35 @@ def run_auto_proposal_job(
     if not p:
         print("⚙️  Aucun signal auto détecté.")
         return False
+
+    # Referee DeepSeek optionnel au-dessus des algos déterministes.
+    if referee_enabled:
+        try:
+            review = review_signal(snapshot, p.model_dump(), enabled=True)
+        except Exception as e:
+            print(f"[auto_proposal] referee DeepSeek erreur: {e}")
+            review = {
+                "mode": "error",
+                "decision": "take",
+                "confidence": 0.0,
+                "comment": str(e),
+                "raw": None,
+            }
+
+        decision = str(review.get("decision", "take")).lower().strip()
+        comment = str(review.get("comment", "")).strip()
+
+        if decision == "skip":
+            # Le referee juge le setup trop fragile → on abandonne ce signal.
+            print(f"[auto_proposal] signal rejeté par referee LLM: {comment}")
+            return False
+
+        if comment:
+            # On enrichit les raisons avec le commentaire du referee
+            reasons = list(p.reasons)
+            if comment not in reasons:
+                reasons.append(f"Referee LLM: {comment}")
+                p.reasons = reasons[:5]
 
     # Garde-fous de risque (avant tout log/affichage)
     if risk_cfg is not None:
@@ -260,6 +291,8 @@ def main(argv=None):
     tg_cfg = cfg.get("telegram", {}) or {}
     scheduler_cfg = cfg.get("scheduler", {}) or {}
     news_cfg = cfg.get("news", {}) or {}
+    llm_cfg = cfg.get("llm", {}) or {}
+    referee_enabled = bool(llm_cfg.get("referee_enabled", False))
 
     feeds = news_cfg.get("feeds", [])
     keywords = news_cfg.get("keywords_any", [])
@@ -345,7 +378,7 @@ def main(argv=None):
             if not _cooldown_ok(sym):
                 print(f"[cooldown] skip {sym} (COOLDOWN_MIN={COOLDOWN_MIN})")
                 return
-            produced = run_auto_proposal_job(sym, risk_cfg, notifier, trades_alerts_enabled)
+            produced = run_auto_proposal_job(sym, risk_cfg, notifier, trades_alerts_enabled, referee_enabled=referee_enabled)
             if produced:
                 _mark_sent(sym)
 
