@@ -1,55 +1,78 @@
 from __future__ import annotations
-import argparse, sys, json
+
+import argparse
+
 from kobe.signals.generator import generate_proposal_from_factors
 from kobe.signals.proposal import format_proposal_for_telegram
 from kobe.core.journal import log_proposal
+from kobe.core.factors import get_market_snapshot
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="kobe autosignal",
-        description="Génère une proposal à partir de facteurs fournis en CLI, journalise et affiche."
+        description=(
+            "Génère une proposal à partir du snapshot marché (Factor Engine V4.2), "
+            "journalise et affiche un message actionnable."
+        ),
     )
-    p.add_argument("--symbol", default="BTCUSDT")
-    p.add_argument("--price", type=float, required=True)
-
-    # Facteurs (scores -1..1 ou 0..1 selon sémantique)
-    p.add_argument("--trend-strength", type=float, default=0.0, help="Force de tendance (négatif=baissier, positif=haussier)")
-    p.add_argument("--funding-bias", type=float, default=0.0, help="Biais de funding (-1 shorts dominent, +1 longs dominent)")
-    p.add_argument("--volatility", type=float, default=0.0, help="Volatilité 0..1")
-    p.add_argument("--btc-dominance", type=float, default=0.5, help="Dominance BTC 0..1")
-    p.add_argument("--news-sentiment", type=float, default=0.0, help="Sentiment news (-1..+1)")
-
-    # Options d'affichage
-    p.add_argument("--balance-usd", type=float, default=None, help="Capital (pour sizing approx)")
-    p.add_argument("--leverage", type=float, default=1.0, help="Levier (pour sizing approx)")
+    p.add_argument(
+        "--symbol",
+        default="BTCUSDC",
+        help="Symbole spot Binance (USDC only en V4.2, ex: BTCUSDC, ETHUSDC, SOLUSDC).",
+    )
+    p.add_argument(
+        "--balance-usd",
+        type=float,
+        default=None,
+        help="Capital en USD (pour sizing approx dans l'affichage Telegram).",
+    )
+    p.add_argument(
+        "--leverage",
+        type=float,
+        default=1.0,
+        help="Levier (pour sizing approx dans l'affichage Telegram).",
+    )
+    p.add_argument(
+        "--debug-snapshot",
+        action="store_true",
+        help="Affiche le snapshot marché brut utilisé pour la génération.",
+    )
     return p
+
 
 def main(argv=None) -> int:
     ap = build_parser()
     args = ap.parse_args(argv)
 
-    market = {
-        "symbol": args.symbol,
-        "price": args.price,
-        "trend_strength": args.trend_strength,
-        "funding_bias": args.funding_bias,
-        "volatility": args.volatility,
-        "btc_dominance": args.btc_dominance,
-        "news_sentiment": args.news_sentiment,
-    }
+    symbol = args.symbol.upper()
 
-    p = generate_proposal_from_factors(market)
+    # 1) Snapshot marché enrichi via Factor Engine V4.2
+    snapshot = get_market_snapshot(symbol)
+    if args.debug_snapshot:
+        print("📊 Snapshot marché utilisé pour la génération:")
+        # On évite le pretty-print JSON complet pour ne pas polluer la sortie,
+        # mais c'est suffisant pour du debug rapide.
+        print(snapshot)
+
+    # 2) Génération de la Proposal à partir du snapshot
+    p = generate_proposal_from_factors(snapshot)
     if not p:
-        print("⚙️  Aucun signal généré (conditions insuffisantes).")
+        print("⚙️  Aucun signal généré pour ce snapshot marché (aucun setup éligible).")
         return 0
 
-    # Journalisation
+    # 3) Journalisation
     log_proposal(p.model_dump())
 
-    # Affichage actionnable (sans envoi Telegram ici)
-    msg = format_proposal_for_telegram(p, balance_usd=args.balance_usd, leverage=args.leverage)
+    # 4) Affichage actionnable (sans envoi Telegram ici)
+    msg = format_proposal_for_telegram(
+        p,
+        balance_usd=args.balance_usd,
+        leverage=args.leverage,
+    )
     print(msg)
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
