@@ -74,7 +74,7 @@ def check_scheduler_construct(cfg: dict) -> dict:
 
 def check_generator_pipeline() -> dict:
     try:
-        snap = get_market_snapshot("BTCUSDT")
+        snap = get_market_snapshot("BTCUSDC")
         _ = generate_proposal_from_factors(snap)  # None est acceptable
         return {"name":"generator.pipeline", "ok": True, "msg": OK}
     except Exception as e:

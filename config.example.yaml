@@ -8,8 +8,9 @@ symbols:
 lot_step: 0.001
 logs_dir: logs
 telegram:
-  bot_token: YOUR_TELEGRAM_BOT_TOKEN
-  chat_id: YOUR_TELEGRAM_CHAT_ID
+  bot_token: "8031369974:AAFo11wmZ70x9mXZ6FFSvTImFJetqQqh3dQ"
+  chat_id: "1066198481"
+
 scheduler:
   enabled_hours_utc:
   - 7
@@ -48,10 +49,11 @@ news:
   max_items_per_run: 6
 alerts:
   trades:
-    enabled: true
+    enabled: true # true => autorise l'envoi des trades sur Telegram (news toujours silencieuses)
     telegram:
-      bot_token: ''
-      chat_id: null
+      bot_token: "8031369974:AAFo11wmZ70x9mXZ6FFSvTImFJetqQqh3dQ"
+      chat_id: "1066198481"   
+      
 reporting:
   daily:
     enabled: true
