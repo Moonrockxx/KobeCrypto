@@ -1,3 +1,22 @@
+import sys
+import types
+
+try:
+    # Si le module existe vraiment (en local), on l'utilise.
+    import kobe.data.binance_ohlc as _binance_ohlc  # type: ignore[unused]
+except ModuleNotFoundError:
+    # En CI (ou environnement incomplet), on crée un module factice
+    pkg = types.ModuleType("kobe.data")
+    mod = types.ModuleType("kobe.data.binance_ohlc")
+
+    def _dummy_fetch_klines(symbol: str, interval: str, limit: int):
+        # Cette fonction sera systématiquement monkeypatchée dans les tests.
+        raise RuntimeError("fetch_klines should be monkeypatched in tests")
+
+    mod.fetch_klines = _dummy_fetch_klines
+    sys.modules["kobe.data"] = pkg
+    sys.modules["kobe.data.binance_ohlc"] = mod
+
 from kobe.core.factors import get_market_snapshot
 import pytest
 
