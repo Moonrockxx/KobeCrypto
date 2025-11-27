@@ -1,0 +1,16 @@
+# Profil de stratégie Kobe V4.3
+# Ce fichier sera la référence de:
+# - la version active de la stratégie,
+# - les paramètres par setup (régimes autorisés, seuils, etc.).
+
+id: "v4.3-default"
+version: "v4.3.0-dev"
+description: "Profil par défaut V4.3: trend breakout 15m sur BTCUSDC/ETHUSDC/SOLUSDC."
+
+enabled_setups:
+  trend_breakout_15m_long:
+    symbols: ["BTCUSDC", "ETHUSDC", "SOLUSDC"]
+    regimes_allowed: ["bull", "neutral"]
+    min_trend_score: 0.6
+    max_atr_pct: 3.0
+    quality_threshold: 0.6
