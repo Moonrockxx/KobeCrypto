@@ -9,8 +9,8 @@ __pycache__/
 .env
 
 # Données locales (ne jamais committer)
-data/*
-logs/*
+/data/*
+/logs/*
 *.csv
 *.jsonl
 *.sqlite*
@@ -24,8 +24,8 @@ config.yaml
 !logs/.gitkeep
 !data/.gitkeep
 config/config.yaml
-logs/
-data/
+/logs/
+/data/
 # config locale non versionnée
 config/config.yaml
 
@@ -39,8 +39,8 @@ README.md.backup
 # --- Kobe V1 hygiene ---
 .env
 .env.*
-data/
-logs/
+/data/
+/logs/
 *.csv
 *.jsonl
 
