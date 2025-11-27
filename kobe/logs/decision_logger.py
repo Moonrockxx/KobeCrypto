@@ -73,7 +73,7 @@ def log_decision(event: Mapping[str, Any]) -> None:
     try:
         line = json.dumps(data, ensure_ascii=False, default=str)
         with path.open("a", encoding="utf-8") as f:
-            f.write(line + "\\n")
+            f.write(line + "\n")
     except Exception as e:
         # On log l'erreur mais on ne casse pas la boucle d'appel.
         print(f"[decision_logger] erreur lors de l'écriture dans {path}: {e}")
