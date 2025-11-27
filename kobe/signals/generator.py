@@ -4,6 +4,27 @@ from typing import Optional, Dict, Any, List
 
 from kobe.signals.proposal import Proposal
 from kobe.signals.setups import scan_setups
+from kobe.logs import log_decision
+
+
+def _build_context_from_snapshot(market: Dict[str, Any]) -> Dict[str, Any]:
+    """Construit un contexte simplifié pour le decision logger à partir du snapshot.
+
+    On reste volontairement léger pour ne pas exploser la taille des logs.
+    """
+    regime = market.get("regime") or {}
+    timeframes = market.get("timeframes") or {}
+
+    market_features: Dict[str, Any] = {}
+    for key in ("trend_strength", "funding_bias", "volatility", "btc_dominance", "news_sentiment"):
+        if key in market:
+            market_features[key] = market[key]
+
+    return {
+        "regime": regime,
+        "timeframes": timeframes,
+        "market_features": market_features,
+    }
 
 
 def _choose_best_candidate(
@@ -86,6 +107,8 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
     if not isinstance(market, dict):
         return None
 
+    symbol = str(market.get("symbol") or "BTCUSDC").upper()
+
     # 1) Scanner les setups possibles à partir du snapshot de marché.
     candidates = scan_setups(market)
     if not candidates:
@@ -96,8 +119,59 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
     if not best:
         return None
 
+    # Decision logger: setup détecté
+    try:
+        log_decision(
+            {
+                "symbol": symbol,
+                "context": _build_context_from_snapshot(market),
+                "setup": {
+                    "id": best.get("id", "unknown"),
+                    "side": best.get("side"),
+                    "quality": float(best.get("quality", 0.0)),
+                },
+                "decision_stage": "setup_detected",
+                "meta": {
+                    "strategy_version": "v4.3-dev",
+                },
+            }
+        )
+    except Exception:
+        # Le logger ne doit jamais casser la génération de la proposal.
+        pass
+
     # 3) Construire la Proposal finale.
     proposal = _build_proposal_from_candidate(best, market)
+    if proposal is None:
+        return None
+
+    # Decision logger: proposal construite (avant tout éventuel filtrage supplémentaire).
+    try:
+        log_decision(
+            {
+                "symbol": symbol,
+                "context": _build_context_from_snapshot(market),
+                "setup": {
+                    "id": best.get("id", "unknown"),
+                    "side": proposal.side,
+                    "quality": float(best.get("quality", 0.0)),
+                },
+                "proposal": {
+                    "entry": proposal.entry,
+                    "stop": proposal.stop,
+                    "take": proposal.take,
+                    "risk_pct": proposal.risk_pct,
+                    "reasons": proposal.reasons,
+                },
+                "decision_stage": "proposal_built",
+                "meta": {
+                    "strategy_version": "v4.3-dev",
+                },
+            }
+        )
+    except Exception:
+        pass
+
     return proposal
 
 
