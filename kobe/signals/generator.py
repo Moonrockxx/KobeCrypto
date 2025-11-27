@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any, List
 from kobe.signals.proposal import Proposal
 from kobe.signals.setups import scan_setups
 from kobe.logs import log_decision
+from kobe.core.strategy_profile import get_strategy_version, get_strategy_id
 
 
 def _build_context_from_snapshot(market: Dict[str, Any]) -> Dict[str, Any]:
@@ -132,7 +133,8 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
                 },
                 "decision_stage": "setup_detected",
                 "meta": {
-                    "strategy_version": "v4.3-dev",
+                    "strategy_id": get_strategy_id(),
+                    "strategy_version": get_strategy_version(),
                 },
             }
         )
@@ -165,7 +167,8 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
                 },
                 "decision_stage": "proposal_built",
                 "meta": {
-                    "strategy_version": "v4.3-dev",
+                    "strategy_id": get_strategy_id(),
+                    "strategy_version": get_strategy_version(),
                 },
             }
         )
