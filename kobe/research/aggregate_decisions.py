@@ -16,6 +16,8 @@ DECISIONS_DIR_DEFAULT = "logs/decisions"
 class DecisionKey:
     day: date
     symbol: str
+    regime_trend: str
+    regime_volatility: str
     decision_stage: str
     setup_id: str
 
@@ -96,9 +98,23 @@ def _build_key(evt: Dict[str, Any]) -> DecisionKey:
     day = date.fromisoformat(str(evt.get("_day")))
     symbol = str(evt.get("symbol") or "UNKNOWN")
     stage = str(evt.get("decision_stage") or "unknown")
+
+    context = evt.get("context") or {}
+    regime = context.get("regime") or {}
+    regime_trend = str(regime.get("trend") or "unknown")
+    regime_volatility = str(regime.get("volatility") or "unknown")
+
     setup = evt.get("setup") or {}
     setup_id = str(setup.get("id") or "none")
-    return DecisionKey(day=day, symbol=symbol, decision_stage=stage, setup_id=setup_id)
+
+    return DecisionKey(
+        day=day,
+        symbol=symbol,
+        regime_trend=regime_trend,
+        regime_volatility=regime_volatility,
+        decision_stage=stage,
+        setup_id=setup_id,
+    )
 
 
 def aggregate_decisions(
@@ -122,9 +138,39 @@ def write_csv_summary(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["day", "symbol", "decision_stage", "setup_id", "count"])
-        for key, value in sorted(counts.items(), key=lambda kv: (kv[0].day, kv[0].symbol, kv[0].decision_stage, kv[0].setup_id)):
-            writer.writerow([key.day.isoformat(), key.symbol, key.decision_stage, key.setup_id, value])
+        writer.writerow(
+            [
+                "day",
+                "symbol",
+                "regime_trend",
+                "regime_volatility",
+                "decision_stage",
+                "setup_id",
+                "count",
+            ]
+        )
+        for key, value in sorted(
+            counts.items(),
+            key=lambda kv: (
+                kv[0].day,
+                kv[0].symbol,
+                kv[0].regime_trend,
+                kv[0].regime_volatility,
+                kv[0].decision_stage,
+                kv[0].setup_id,
+            ),
+        ):
+            writer.writerow(
+                [
+                    key.day.isoformat(),
+                    key.symbol,
+                    key.regime_trend,
+                    key.regime_volatility,
+                    key.decision_stage,
+                    key.setup_id,
+                    value,
+                ]
+            )
 
 
 def _parse_date(value: Optional[str]) -> Optional[date]:
