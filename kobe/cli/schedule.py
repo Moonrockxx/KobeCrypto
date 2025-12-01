@@ -593,10 +593,12 @@ def main(argv=None):
         # ============================================================================ 
 
         # Ajout heartbeat toutes les HEARTBEAT_MIN (si >0)
+        # SOP V4.3: plus de heartbeat Telegram régulier, uniquement un print console pour debug long-run.
         if HEARTBEAT_MIN > 0:
             def _hb():
                 print("[heartbeat] alive")
-                _tg_send_from_cfg(tg_cfg, "💓 Runner OK — alive")
+                # Plus d'envoi Telegram ici: on garde uniquement le keepalive console.
+                # _tg_send_from_cfg(tg_cfg, "💓 Runner OK — alive")
             sched.add_job(_hb, trigger=IntervalTrigger(minutes=HEARTBEAT_MIN, timezone=UTC))
 
         # Keepalive stdout toutes 30s pour debug long-run
