@@ -159,7 +159,7 @@ def scan_setups(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         if atr_val > 0:
             # Excès haussier → short mean reversion
-            if dist_ema_15 > 2.5:
+            if dist_ema_15 > 2.0:
                 entry = tf_15.close
                 stop = entry + 2.0 * atr_val
                 take = entry - 3.0 * atr_val
@@ -185,7 +185,7 @@ def scan_setups(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
                 )
 
             # Excès baissier → long mean reversion
-            elif dist_ema_15 < -2.5:
+            elif dist_ema_15 < -2.0:
                 entry = tf_15.close
                 stop = entry - 2.0 * atr_val
                 take = entry + 3.0 * atr_val

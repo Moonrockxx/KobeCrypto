@@ -29,7 +29,7 @@ def _build_context_from_snapshot(market: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _choose_best_candidate(
-    candidates: List[Dict[str, Any]], min_quality: float = 0.6
+    candidates: List[Dict[str, Any]], min_quality: float = 0.55
 ) -> Optional[Dict[str, Any]]:
     """Filtre et choisit le meilleur candidat en fonction de la quality."""
     if not candidates:
@@ -116,7 +116,7 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
         return None
 
     # 2) Filtrer et choisir le candidat le plus intéressant.
-    best = _choose_best_candidate(candidates, min_quality=0.6)
+    best = _choose_best_candidate(candidates, min_quality=0.55)
     if not best:
         return None
 

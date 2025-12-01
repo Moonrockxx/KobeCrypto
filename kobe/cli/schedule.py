@@ -94,7 +94,7 @@ from kobe.cli.report import run_report
 from apscheduler.triggers.cron import CronTrigger
 
 LOCK_PATH = "/tmp/kobe_runner.lock"
-HEARTBEAT_MIN = int(os.getenv("HEARTBEAT_MIN", "60"))  # SOP V4: heartbeat optionnel 60'
+HEARTBEAT_MIN = int(os.getenv("HEARTBEAT_MIN", "0"))  # SOP V4: heartbeat désactivé par défaut (opt-in via env)
 TELEGRAM_DRYRUN = os.getenv("TELEGRAM_DRYRUN", "0") == "1"
 
 def _now_utc():
