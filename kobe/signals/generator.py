@@ -113,11 +113,19 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
     # 1) Scanner les setups possibles à partir du snapshot de marché.
     candidates = scan_setups(market)
     if not candidates:
+        # Debug minimal pour comprendre pourquoi aucun signal n'est généré
+        print("[autosignal][debug] aucun setup candidat généré pour ce snapshot")
         return None
 
     # 2) Filtrer et choisir le candidat le plus intéressant.
     best = _choose_best_candidate(candidates, min_quality=0.55)
     if not best:
+        # Ici, on a bien des candidats mais tous en dessous du min_quality ou filtrés
+        qualities = [c.get("quality") for c in candidates]
+        print(
+            f"[autosignal][debug] {len(candidates)} candidats générés mais aucun au-dessus du min_quality; "
+            f"qualities={qualities}"
+        )
         return None
 
     # Decision logger: setup détecté
