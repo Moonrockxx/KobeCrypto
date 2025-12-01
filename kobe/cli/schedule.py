@@ -84,6 +84,7 @@ from kobe.signals.generator import generate_proposal_from_factors
 from kobe.signals.proposal import format_proposal_for_telegram
 from kobe.llm.signal_review import review_signal
 from kobe.core.journal import log_proposal
+from kobe.logs import log_decision
 from kobe.core.risk import validate_proposal, RiskConfig
 from kobe.core.trade_alerts import send_trade, send_execution_event
 from kobe.core.router import place_from_proposal
@@ -93,7 +94,7 @@ from kobe.cli.report import run_report
 from apscheduler.triggers.cron import CronTrigger
 
 LOCK_PATH = "/tmp/kobe_runner.lock"
-HEARTBEAT_MIN = int(os.getenv("HEARTBEAT_MIN", "60"))  # SOP V4: heartbeat optionnel 60'
+HEARTBEAT_MIN = int(os.getenv("HEARTBEAT_MIN", "0"))  # SOP V4: heartbeat désactivé par défaut (opt-in via env)
 TELEGRAM_DRYRUN = os.getenv("TELEGRAM_DRYRUN", "0") == "1"
 
 def _now_utc():
@@ -164,6 +165,18 @@ def run_auto_proposal_job(
     p = generate_proposal_from_factors(snapshot)
     if not p:
         print("⚙️  Aucun signal auto détecté.")
+        try:
+            log_decision(
+                {
+                    "symbol": symbol,
+                    "decision_stage": "no_proposal",
+                    "meta": {
+                        "strategy_version": "v4.3-dev",
+                    },
+                }
+            )
+        except Exception:
+            pass
         return False
 
     # Referee DeepSeek optionnel au-dessus des algos déterministes.
@@ -183,6 +196,34 @@ def run_auto_proposal_job(
         decision = str(review.get("decision", "take")).lower().strip()
         comment = str(review.get("comment", "")).strip()
 
+        stage = "proposal_rejected_referee" if decision == "skip" else "referee_approved"
+        try:
+            log_decision(
+                {
+                    "symbol": symbol,
+                    "decision_stage": stage,
+                    "proposal": {
+                        "entry": p.entry,
+                        "stop": p.stop,
+                        "take": p.take,
+                        "risk_pct": p.risk_pct,
+                        "reasons": p.reasons,
+                        "side": p.side,
+                    },
+                    "referee": {
+                        "mode": review.get("mode"),
+                        "decision": decision,
+                        "confidence": review.get("confidence"),
+                        "comment": comment,
+                    },
+                    "meta": {
+                        "strategy_version": "v4.3-dev",
+                    },
+                }
+            )
+        except Exception:
+            pass
+
         if decision == "skip":
             # Le referee juge le setup trop fragile → on abandonne ce signal.
             print(f"[auto_proposal] signal rejeté par referee LLM: {comment}")
@@ -201,6 +242,29 @@ def run_auto_proposal_job(
             validate_proposal(p, risk_cfg, is_proposal=True)
         except Exception as e:
             print(f"[auto_proposal] rejet par risk guard: {e}")
+            try:
+                log_decision(
+                    {
+                        "symbol": symbol,
+                        "decision_stage": "proposal_rejected_risk_guard",
+                        "proposal": {
+                            "entry": p.entry,
+                            "stop": p.stop,
+                            "take": p.take,
+                            "risk_pct": p.risk_pct,
+                            "reasons": p.reasons,
+                            "side": p.side,
+                        },
+                        "risk_guard": {
+                            "error": str(e),
+                        },
+                        "meta": {
+                            "strategy_version": "v4.3-dev",
+                        },
+                    }
+                )
+            except Exception:
+                pass
             return False
 
     # Log de la proposal brute
@@ -220,11 +284,64 @@ def run_auto_proposal_job(
             )
         except Exception as e:
             print(f"[auto_proposal] erreur execution auto via router: {e}")
+            try:
+                log_decision(
+                    {
+                        "symbol": symbol,
+                        "decision_stage": "execution",
+                        "proposal": {
+                            "entry": p.entry,
+                            "stop": p.stop,
+                            "take": p.take,
+                            "risk_pct": p.risk_pct,
+                            "reasons": p.reasons,
+                            "side": p.side,
+                        },
+                        "execution": {
+                            "status": "error",
+                            "error": str(e),
+                        },
+                        "meta": {
+                            "strategy_version": "v4.3-dev",
+                        },
+                    }
+                )
+            except Exception:
+                pass
             evt = None
 
     if trades_alerts_enabled and notifier is not None:
         # Si une exécution (ou au moins un plan) a été produite, on envoie le message d'exécution
         if evt is not None:
+            try:
+                log_decision(
+                    {
+                        "symbol": symbol,
+                        "decision_stage": "execution",
+                        "proposal": {
+                            "entry": p.entry,
+                            "stop": p.stop,
+                            "take": p.take,
+                            "risk_pct": p.risk_pct,
+                            "reasons": p.reasons,
+                            "side": p.side,
+                        },
+                        "execution": {
+                            "status": str(evt.get("status", "ok")),
+                            "mode": evt.get("mode"),
+                            "qty": evt.get("qty"),
+                            "price": evt.get("price"),
+                            "exchange": evt.get("exchange"),
+                            "order_id": evt.get("order_id"),
+                        },
+                        "meta": {
+                            "strategy_version": "v4.3-dev",
+                        },
+                    }
+                )
+            except Exception:
+                pass
+
             send_execution_event(
                 notifier,
                 p,
@@ -237,13 +354,79 @@ def run_auto_proposal_job(
         # Sinon on retombe sur le comportement historique: simple signal Telegram
         sent = send_trade(notifier, p, balance_usd=10000.0, leverage=2.0)
         if sent:
+            try:
+                log_decision(
+                    {
+                        "symbol": symbol,
+                        "decision_stage": "signal_only",
+                        "proposal": {
+                            "entry": p.entry,
+                            "stop": p.stop,
+                            "take": p.take,
+                            "risk_pct": p.risk_pct,
+                            "reasons": p.reasons,
+                            "side": p.side,
+                        },
+                        "signal": {
+                            "status": "sent",
+                        },
+                        "meta": {
+                            "strategy_version": "v4.3-dev",
+                        },
+                    }
+                )
+            except Exception:
+                pass
             return True
         else:
             print(msg)
+            try:
+                log_decision(
+                    {
+                        "symbol": symbol,
+                        "decision_stage": "signal_only",
+                        "proposal": {
+                            "entry": p.entry,
+                            "stop": p.stop,
+                            "take": p.take,
+                            "risk_pct": p.risk_pct,
+                            "reasons": p.reasons,
+                            "side": p.side,
+                        },
+                        "signal": {
+                            "status": "print_only",
+                        },
+                        "meta": {
+                            "strategy_version": "v4.3-dev",
+                        },
+                    }
+                )
+            except Exception:
+                pass
             return True
 
     # Pas de notifier ou alerts désactivées: simple print
     print(msg)
+    try:
+        log_decision(
+            {
+                "symbol": symbol,
+                "decision_stage": "signal_console_only",
+                "proposal": {
+                    "entry": p.entry,
+                    "stop": p.stop,
+                    "take": p.take,
+                    "risk_pct": p.risk_pct,
+                    "reasons": p.reasons,
+                    "side": p.side,
+                },
+                "meta": {
+                    "strategy_version": "v4.3-dev",
+                },
+            }
+        )
+    except Exception:
+        pass
     return True
 
 def _parse_hhmm(s: str) -> tuple[int, int]:

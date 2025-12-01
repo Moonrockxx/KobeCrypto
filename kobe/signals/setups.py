@@ -153,13 +153,13 @@ def scan_setups(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
                     )
 
     # --- Playbook 3: Mean reversion 15m (range / excès) ---
-    if tf_15 and trend_regime == "range" and vol_regime in ("calm", "normal"):
+    if tf_15 and trend_regime in ("range", "bear") and vol_regime in ("calm", "normal"):
         dist_ema_15 = _dist_pct(tf_15.close, tf_15.ema_20)
         atr_val = _atr_abs(tf_15.close, tf_15.atr_pct_14)
 
         if atr_val > 0:
             # Excès haussier → short mean reversion
-            if dist_ema_15 > 2.5:
+            if dist_ema_15 > 2.0:
                 entry = tf_15.close
                 stop = entry + 2.0 * atr_val
                 take = entry - 3.0 * atr_val
@@ -185,7 +185,7 @@ def scan_setups(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
                 )
 
             # Excès baissier → long mean reversion
-            elif dist_ema_15 < -2.5:
+            elif dist_ema_15 < -2.0:
                 entry = tf_15.close
                 stop = entry - 2.0 * atr_val
                 take = entry + 3.0 * atr_val
@@ -210,6 +210,16 @@ def scan_setups(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
                     }
                 )
 
+    if not candidates:
+        # Debug minimal pour comprendre pourquoi aucun setup n'est généré
+        print(
+            "[scan_setups][debug] aucun setup généré pour "
+            f"{symbol} trend={trend_regime} vol={vol_regime} "
+            f"tf_15={'ok' if tf_15 else 'none'} "
+            f"tf_1h={'ok' if tf_1h else 'none'} "
+            f"tf_4h={'ok' if tf_4h else 'none'} "
+            f"tf_1d={'ok' if tf_1d else 'none'}"
+        )
     return candidates
 
 
