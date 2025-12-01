@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List
 
 from kobe.signals.proposal import Proposal
 from kobe.signals.setups import scan_setups
-from kobe.logs import log_decision
+from kobe.logs.decision_logger import log_decision, log_autosignal_no_signal
 from kobe.core.strategy_profile import get_strategy_version, get_strategy_id
 
 
@@ -113,19 +113,41 @@ def generate_proposal_from_factors(market: Dict[str, Any]) -> Optional[Proposal]
     # 1) Scanner les setups possibles à partir du snapshot de marché.
     candidates = scan_setups(market)
     if not candidates:
-        # Debug minimal pour comprendre pourquoi aucun signal n'est généré
-        print("[autosignal][debug] aucun setup candidat généré pour ce snapshot")
+        # Cas 1 : aucun setup candidat généré
+        try:
+            log_autosignal_no_signal(
+                symbol=symbol,
+                reason="no_candidates",
+                context=_build_context_from_snapshot(market),
+                meta={
+                    "strategy_id": get_strategy_id(),
+                    "strategy_version": get_strategy_version(),
+                },
+            )
+        except Exception:
+            # Le logger ne doit jamais casser la génération de la proposal.
+            pass
         return None
 
     # 2) Filtrer et choisir le candidat le plus intéressant.
     best = _choose_best_candidate(candidates, min_quality=0.55)
     if not best:
-        # Ici, on a bien des candidats mais tous en dessous du min_quality ou filtrés
-        qualities = [c.get("quality") for c in candidates]
-        print(
-            f"[autosignal][debug] {len(candidates)} candidats générés mais aucun au-dessus du min_quality; "
-            f"qualities={qualities}"
-        )
+        # Cas 2 : des candidats existent mais sont filtrés par la quality
+        qualities = [float(c.get("quality", 0.0)) for c in candidates]
+        try:
+            context = _build_context_from_snapshot(market)
+            context["candidates_quality"] = qualities
+            log_autosignal_no_signal(
+                symbol=symbol,
+                reason="below_min_quality",
+                context=context,
+                meta={
+                    "strategy_id": get_strategy_id(),
+                    "strategy_version": get_strategy_version(),
+                },
+            )
+        except Exception:
+            pass
         return None
 
     # Decision logger: setup détecté

@@ -77,3 +77,31 @@ def log_decision(event: Mapping[str, Any]) -> None:
     except Exception as e:
         # On log l'erreur mais on ne casse pas la boucle d'appel.
         print(f"[decision_logger] erreur lors de l'écriture dans {path}: {e}")
+
+
+def log_autosignal_no_signal(
+    *,
+    symbol: str,
+    reason: str,
+    context: Mapping[str, Any] | None = None,
+    meta: Mapping[str, Any] | None = None,
+) -> None:
+    """Helper pour logguer un événement "aucun signal autosignal".
+
+    Cet helper structure l'événement pour le labo V4.3 sans imposer de schéma
+    rigide au reste du code. Il nève jamais d'exception vers l'appelant.
+    """
+
+    event: dict[str, Any] = {
+        "source": "autosignal",
+        "stage": "no_signal",
+        "reason": reason,
+        "symbol": symbol,
+    }
+
+    if context is not None:
+        event["context"] = dict(context)
+    if meta is not None:
+        event["meta"] = dict(meta)
+
+    log_decision(event)
