@@ -4,6 +4,7 @@ import json
 import os
 import time
 from typing import Any, Dict, List
+from datetime import datetime, timezone
 
 
 def _emoji_for_stage(event: Dict[str, Any]) -> str:
@@ -37,10 +38,24 @@ def _safe_get(d: Dict[str, Any], *keys, default=None):
     return cur if cur is not None else default
 
 
+def _format_ts(ts: str) -> str:
+    if not ts or ts == "?":
+        return "????-??-?? ??:??:??"
+    try:
+        # Support ISO format with or without 'Z'
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt_utc = dt.astimezone(timezone.utc)
+        return dt_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except Exception:
+        # Fallback: return raw string if parsing fails
+        return ts
+
+
 def _format_event(event: Dict[str, Any]) -> str:
     lines: List[str] = []
 
-    ts = event.get("ts", "?")
+    ts_raw = event.get("ts", "?")
+    ts_display = _format_ts(ts_raw)
     symbol = event.get("symbol", "?")
 
     regime = _safe_get(event, "context", "regime", default={}) or {}
@@ -54,16 +69,17 @@ def _format_event(event: Dict[str, Any]) -> str:
         stage = event.get("stage", "unknown")
         reason = event.get("reason", "n/a")
 
-        lines.append(f"{emoji} autosignal [{stage}] {symbol}")
+        # Timestamp mis en avant en début de ligne
+        lines.append(f"[{ts_display}] {emoji} autosignal [{stage}] {symbol}")
         lines.append(f"   • regime: trend={trend}, vol={vol}")
         lines.append(f"   • reason: {reason}")
-        lines.append(f"   • ts: {ts}")
         return "\n".join(lines)
 
     # Cas décision classique avec decision_stage
     stage = event.get("decision_stage", "unknown")
 
-    lines.append(f"{emoji} decision_stage={stage} symbol={symbol}")
+    # Timestamp mis en avant en début de ligne
+    lines.append(f"[{ts_display}] {emoji} decision_stage={stage} symbol={symbol}")
     lines.append(f"   • regime: trend={trend}, vol={vol}")
 
     setup = event.get("setup")
@@ -101,8 +117,6 @@ def _format_event(event: Dict[str, Any]) -> str:
     strategy_id = meta.get("strategy_id", "n/a")
     strategy_version = meta.get("strategy_version", "n/a")
     lines.append(f"   • strategy: {strategy_id} ({strategy_version})")
-
-    lines.append(f"   • ts: {ts}")
 
     return "\n".join(lines)
 
