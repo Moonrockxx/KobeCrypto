@@ -14,3 +14,10 @@ enabled_setups:
     min_trend_score: 0.6
     max_atr_pct: 3.0
     quality_threshold: 0.6
+
+  mean_reversion_15m:
+    symbols: ["BTCUSDC", "ETHUSDC", "SOLUSDC"]
+    regimes_allowed: ["bear", "range"]
+    min_trend_score: 0.0
+    max_atr_pct: 4.0
+    quality_threshold: 0.55
