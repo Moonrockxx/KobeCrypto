@@ -471,6 +471,14 @@ def main(argv=None):
 
     selected_symbol = args.symbol
     cfg = load_cfg(args.config)
+
+    # Liste de symboles à scanner (priorité à la config, fallback sur selected_symbol)
+    symbols_cfg = cfg.get("symbols") or []
+    if isinstance(symbols_cfg, (list, tuple)) and symbols_cfg:
+        symbols = [str(s).strip() for s in symbols_cfg if str(s).strip()]
+    else:
+        symbols = [selected_symbol]
+
     tg_cfg = cfg.get("telegram", {}) or {}
     scheduler_cfg = cfg.get("scheduler", {}) or {}
     news_cfg = cfg.get("news", {}) or {}
@@ -557,13 +565,25 @@ def main(argv=None):
             return aligned
 
         def _auto_job():
-            sym = selected_symbol
-            if not _cooldown_ok(sym):
-                print(f"[cooldown] skip {sym} (COOLDOWN_MIN={COOLDOWN_MIN})")
-                return
-            produced = run_auto_proposal_job(sym, risk_cfg, notifier, trades_alerts_enabled, referee_enabled=referee_enabled)
-            if produced:
-                _mark_sent(sym)
+            # Parcourt tous les symboles configurés (BTCUSDC, ETHUSDC, SOLUSDC, etc.)
+            for sym in symbols:
+                if not _cooldown_ok(sym):
+                    print(f"[cooldown] skip {sym} (COOLDOWN_MIN={COOLDOWN_MIN})")
+                    continue
+                try:
+                    produced = run_auto_proposal_job(
+                        sym,
+                        risk_cfg,
+                        notifier,
+                        trades_alerts_enabled,
+                        referee_enabled=referee_enabled,
+                    )
+                except Exception as e:
+                    print(f"[auto_proposal] erreur pour {sym}: {e}")
+                    continue
+
+                if produced:
+                    _mark_sent(sym)
 
         first_run = _next_aligned(_now_utc(), interval_minutes)
         print(f"🪩 Alignement activé — premier tick à {first_run.strftime('%H:%M:%S UTC')} (interval={interval_minutes}m)")
