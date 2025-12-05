@@ -124,10 +124,14 @@ def place_from_proposal(
     env = load_env()
     cfg = merge_env_config(env, load_config(cfg_path))
     mode = current_mode(cfg)
+    risk_cfg_dict = cfg.get("risk", {})
     rcfg = risk_cfg or RiskConfig(
-        max_trade_pct=cfg.get("risk", {}).get("max_trade_pct", 0.5),
-        max_proposal_pct=cfg.get("risk", {}).get("max_proposal_pct", 0.25),
+        max_trade_pct=risk_cfg_dict.get("max_trade_pct", 0.5),
+        max_proposal_pct=risk_cfg_dict.get("max_proposal_pct", 0.25),
     )
+    # Notional minimum souhaité pour qu'un trade LIVE soit vraiment "tradable".
+    # Par défaut 5 USDC, override possible dans config.risk.min_live_notional_usd.
+    min_live_notional = float(risk_cfg_dict.get("min_live_notional_usd", 5.0))
 
     # Si on est en LIVE, on remplace le balance_usd simulé par le solde réel USDC du compte Binance.
     if mode == Mode.LIVE:
@@ -155,23 +159,43 @@ def place_from_proposal(
     # Sizing (qty en base)
     qty = position_size(balance_usd, p.risk_pct, p.entry, p.stop, leverage=leverage)
 
-    # Garde de sécurité pour le mode LIVE :
-    # si la quantité est trop petite, on n'envoie pas d'ordre à Binance
-    # (les filtres LOT_SIZE/NOTIONAL rejetteraient l'ordre).
-    if mode == Mode.LIVE and qty < 0.01:
-        evt = _build_evt(
-            mode,
-            p,
-            qty,
-            price=p.entry,
-            action="skip_too_small",
-            exchange="binance_spot",
-            order_id="",
-            status="TOO_SMALL",
-        )
-        _append_order(evt)
-        _log_execution_from_evt(mode, p, qty, evt)
-        return mode, evt
+    # Garde de sécurité pour le mode LIVE : si la taille notionnelle est trop petite
+    # pour être tradable sur Binance, on essaie d'augmenter la taille jusqu'à un
+    # risque max (rcfg.max_trade_pct). Si même ce plafond ne suffit pas, on skip.
+    if mode == Mode.LIVE:
+        notional = qty * float(p.entry)
+        if notional < min_live_notional:
+            # Facteur max autorisé par le plafond de risque (ex: 0.25 -> 0.5 = x2)
+            max_factor = 1.0
+            if p.risk_pct > 0:
+                try:
+                    max_factor = max(1.0, float(rcfg.max_trade_pct) / float(p.risk_pct))
+                except (TypeError, ValueError, ZeroDivisionError):
+                    max_factor = 1.0
+
+            # Facteur nécessaire pour atteindre le notional minimum
+            safe_notional = max(notional, 1e-12)
+            needed_factor = min_live_notional / safe_notional
+
+            if needed_factor <= max_factor:
+                # On augmente la taille dans la limite du risque max autorisé
+                qty *= needed_factor
+            else:
+                # Même en poussant le risque jusqu'au plafond, le trade resterait trop petit.
+                # On le journalise en TOO_SMALL et on n'envoie rien à Binance.
+                evt = _build_evt(
+                    mode,
+                    p,
+                    qty,
+                    price=p.entry,
+                    action="skip_too_small",
+                    exchange="binance_spot",
+                    order_id="",
+                    status="TOO_SMALL",
+                )
+                _append_order(evt)
+                _log_execution_from_evt(mode, p, qty, evt)
+                return mode, evt
 
     if mode == Mode.PAPER:
         # simulateur local
