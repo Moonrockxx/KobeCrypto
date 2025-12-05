@@ -18,7 +18,7 @@ def render_execution_message(p: Proposal, evt: dict, balance_usd: Optional[float
     """
     mode = str(evt.get("mode", "")).upper()
     status = str(evt.get("status", "UNKNOWN"))
-    action = str(evt.get("action", ""))
+    action = str(evt.get("router_action") or evt.get("action", ""))
     exchange = evt.get("exchange", "binance_spot")
     symbol = evt.get("symbol") or p.symbol
     side = (p.side or "").upper()
@@ -26,9 +26,17 @@ def render_execution_message(p: Proposal, evt: dict, balance_usd: Optional[float
     price = evt.get("price", p.entry)
 
     # En-tête: succès ou alerte selon le statut
-    header = f"✅ EXÉCUTION {mode} — {symbol} {side}"
-    if status.startswith("ERR") or status in ("KILL_SWITCH", "REJECTED"):
-        header = f"⚠️ EXÉCUTION {mode} — {symbol} {side}"
+    status_upper = status.upper()
+    is_too_small = status_upper == "TOO_SMALL"
+    is_error = status_upper.startswith("ERR") or "HTTP" in status_upper or "ERROR" in status_upper
+    is_kill = status_upper.startswith("KILL_SWITCH") or status_upper == "REJECTED"
+
+    if is_too_small:
+        header = f"⚠️ AUCUNE EXÉCUTION {mode} — {symbol} {side}"
+    elif is_error or is_kill:
+        header = f"⚠️ EXÉCUTION BLOQUÉE {mode} — {symbol} {side}"
+    else:
+        header = f"✅ EXÉCUTION {mode} — {symbol} {side}"
 
     parts = [header]
 
@@ -63,6 +71,14 @@ def render_execution_message(p: Proposal, evt: dict, balance_usd: Optional[float
     if action:
         parts.append(f"• Action : {action}")
     parts.append(f"• Statut : `{status}`")
+
+    # Remarque explicite selon le statut d'exécution
+    if is_too_small:
+        parts.append("• Remarque : aucun ordre n'a été envoyé à l'exchange (taille trop petite / contraintes de lot).")
+    elif is_kill:
+        parts.append("• Remarque : exécution bloquée par le kill-switch / contrôles de risque.")
+    elif is_error:
+        parts.append("• Remarque : erreur échange/API, le trade n'est probablement pas exécuté (voir statut ci-dessus).")
 
     # Raisons si présentes dans la proposal
     reasons = getattr(p, "reasons", None)

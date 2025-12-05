@@ -10,6 +10,7 @@ from kobe.core.secrets import load_env, load_config, merge_env_config, get_excha
 from kobe.core.modes import current_mode, Mode
 from kobe.execution.binance_spot import BinanceSpot
 from kobe.core.adapter.binance import BinanceAdapter
+from kobe.logs.execution_logger import ExecutionStatus, log_execution_result
 
 # Journal des ordres (papier & testnet)
 ORDERS_LOG_DIR = Path("logs")
@@ -59,6 +60,50 @@ def _build_evt(
         "risk_pct": float(p.risk_pct),
         "size_pct": float(p.size_pct),
     }
+
+def _log_execution_from_evt(mode: Mode, p: Proposal, qty: float, evt: Dict[str, Any]) -> None:
+    """Pont entre le journal 'orders' historique et le nouveau execution_logger.
+
+    On:
+    - lit evt["status"] / evt["router_action"] / evt["exchange"]
+    - mappe ça vers un ExecutionStatus standardisé
+    - pousse l'event dans logs/executions/*.jsonl
+
+    Cette fonction NE DOIT JAMAIS faire planter le router: toute erreur est swallow.
+    """
+    try:
+        raw_status = str(evt.get("status", "") or "")
+        router_action = str(evt.get("router_action", "") or "")
+        exchange = str(evt.get("exchange", "") or "unknown")
+
+        upper = raw_status.upper()
+        exec_status = ExecutionStatus.SUCCESS
+
+        if upper == "TOO_SMALL":
+            exec_status = ExecutionStatus.TOO_SMALL
+        elif upper.startswith("ERR:") or "HTTP" in upper or "ERROR" in upper:
+            exec_status = ExecutionStatus.EXCHANGE_ERROR
+        elif upper.startswith("KILL_SWITCH"):
+            exec_status = ExecutionStatus.REJECTED
+
+        log_execution_result(
+            symbol=p.symbol,
+            side=p.side,
+            exchange=exchange,
+            mode=mode.value,
+            status=exec_status,
+            entry=p.entry,
+            stop=p.stop,
+            take=p.take,
+            qty=qty,
+            meta={
+                "router_action": router_action,
+                "raw_status": raw_status,
+            },
+        )
+    except Exception:
+        # On ne veut jamais casser la chaîne d'exécution
+        return
 
 def place_from_proposal(
     p: Proposal,
@@ -125,6 +170,7 @@ def place_from_proposal(
             status="TOO_SMALL",
         )
         _append_order(evt)
+        _log_execution_from_evt(mode, p, qty, evt)
         return mode, evt
 
     if mode == Mode.PAPER:
@@ -132,6 +178,7 @@ def place_from_proposal(
         open_evt = simulate_open(p, balance_usd=balance_usd, leverage=leverage)
         evt = _build_evt(mode, p, qty, price=p.entry, action="simulate_open", exchange="paper", status="OPENED")
         _append_order(evt)
+        _log_execution_from_evt(mode, p, qty, evt)
         return mode, evt
 
     if mode == Mode.TESTNET:
@@ -145,6 +192,7 @@ def place_from_proposal(
             exchange="binance", order_id=str(od.get("id", "")), status=str(od.get("status",""))
         )
         _append_order(evt)
+        _log_execution_from_evt(mode, p, qty, evt)
         return mode, evt
 
     if mode == Mode.LIVE:
@@ -244,6 +292,7 @@ def place_from_proposal(
                     exchange="binance_spot", order_id=order_id, status=status
                 )
                 _append_order(evt)
+                _log_execution_from_evt(mode, p, qty, evt)
                 return mode, evt
 
             # fallback si plan invalide ou erreur : on garde l'ancien chemin
@@ -313,6 +362,7 @@ def place_from_proposal(
             exchange="binance_spot", order_id=order_id, status=status
         )
         _append_order(evt)
+        _log_execution_from_evt(mode, p, qty, evt)
         return mode, evt
 
     raise RuntimeError("Mode inconnu pour place_from_proposal.")
