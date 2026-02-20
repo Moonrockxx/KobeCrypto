@@ -1,75 +1,88 @@
 from __future__ import annotations
-import time, random
+import ccxt
 from typing import Any, Dict, List, Optional
-import requests
 
-from kobe.core.adapter.base import Exchange, ExchangeError, NetworkError
-
+from kobe.core.adapter.base import (
+    Exchange,
+    ExchangeError,
+    AuthenticationError,
+    NetworkError,
+)
 
 class BinanceAdapter(Exchange):
     """
-    Implémentation simplifiée (mock/testnet) de l'interface Exchange pour Binance.
-    Aucun appel réel requis pour les tests unitaires : les retours sont simulés.
+    Implémentation de l'interface Exchange pour Binance utilisant CCXT.
+    Gère automatiquement la connexion, les signatures, le Rate Limiting et les erreurs réseau.
     """
 
     name = "Binance"
     supports_testnet = True
-    BASE_URL = "https://testnet.binance.vision/api/v3"
 
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, testnet: bool = True):
-        self.api_key = api_key or "demo_key"
-        self.api_secret = api_secret or "demo_secret"
         self.testnet = testnet
-
-    # --- utils internes ---
-    def _simulate_delay(self):
-        time.sleep(0.05)
-
-    def _get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """Appel GET basique (mockable)."""
-        url = f"{self.BASE_URL}{endpoint}"
-        try:
-            resp = requests.get(url, params=params or {}, timeout=5)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            raise NetworkError(str(e))
-
-    # --- implémentations Exchange ---
-    def load_markets(self, quote_filter: Optional[str] = "USDC", max_markets: Optional[int] = 250) -> Dict[str, Any]:
-        """
-        Charge la liste des paires depuis le testnet (ou mock fallback).
-        - quote_filter: si défini (ex: "USDT"), ne conserve que les paires avec ce quote asset.
-                        si None: conserve toutes les paires retournées par l'API.
-        - max_markets: tronque le nombre de marchés (utile pour CI); si None, pas de tronquage.
-        """
-        try:
-            data = self._get("/exchangeInfo")
-            symbols = data.get("symbols", [])
-            # Filtrage par quote asset si demandé
-            if quote_filter:
-                symbols = [s for s in symbols if str(s.get("quoteAsset", "")).upper() == quote_filter.upper()]
-            # Tronquage si demandé
-            if isinstance(max_markets, int) and max_markets > 0:
-                symbols = symbols[:max_markets]
-            return {s["symbol"]: s for s in symbols}
-        except Exception:
-            # fallback mock (déjà filtré USDT)
-            markets = {
-                "BTCUSDC": {"symbol": "BTCUSDC", "baseAsset": "BTC", "quoteAsset": "USDC"},
-                "ETHUSDC": {"symbol": "ETHUSDC", "baseAsset": "ETH", "quoteAsset": "USDC"},
+        
+        # Initialisation du client CCXT pour Binance
+        self.client = ccxt.binance({
+            'apiKey': api_key or '',
+            'secret': api_secret or '',
+            'enableRateLimit': True,  # Sécurité pour ne pas se faire bannir par Binance
+            'options': {
+                'defaultType': 'spot' # Le bot opère sur le marché Spot
             }
-            # Tronquage éventuel
+        })
+        
+        if self.testnet:
+            self.client.set_sandbox_mode(True)
+
+    def _format_symbol(self, symbol: str) -> str:
+        """Convertit 'BTCUSDC' en format standard CCXT 'BTC/USDC'."""
+        if "/" not in symbol and len(symbol) > 4:
+            # Séparation basique (adaptable selon les paires)
+            if symbol.endswith("USDC"):
+                return symbol.replace("USDC", "/USDC")
+            elif symbol.endswith("USDT"):
+                return symbol.replace("USDT", "/USDT")
+        return symbol
+
+    def _handle_error(self, e: Exception) -> None:
+        """Traduit les exceptions CCXT vers les exceptions internes de base.py."""
+        if isinstance(e, ccxt.AuthenticationError):
+            raise AuthenticationError(f"Problème d'authentification Binance: {str(e)}")
+        elif isinstance(e, ccxt.NetworkError):
+            raise NetworkError(f"Erreur réseau Binance: {str(e)}")
+        elif isinstance(e, ccxt.BaseError):
+            raise ExchangeError(f"Erreur d'exécution Binance: {str(e)}")
+        else:
+            raise ExchangeError(f"Erreur inattendue: {str(e)}")
+
+    def load_markets(self, quote_filter: Optional[str] = "USDC", max_markets: Optional[int] = None) -> Dict[str, Any]:
+        try:
+            markets = self.client.load_markets()
+            result = {}
+            for unified_symbol, market_data in markets.items():
+                # On recrée le format interne sans slash (ex: 'BTC/USDC' -> 'BTCUSDC')
+                internal_symbol = unified_symbol.replace("/", "")
+                
+                if quote_filter and market_data.get('quote') != quote_filter.upper():
+                    continue
+                
+                result[internal_symbol] = market_data
+            
             if isinstance(max_markets, int) and max_markets > 0:
-                items = list(markets.items())[:max_markets]
-                return {k: v for k, v in items}
-            return markets
+                items = list(result.items())[:max_markets]
+                result = {k: v for k, v in items}
+                
+            return result
+        except Exception as e:
+            self._handle_error(e)
 
     def get_balance(self, asset: str) -> float:
-        """Retourne un solde fictif constant."""
-        self._simulate_delay()
-        mock_balances = {"BTC": 0.25, "USDT": 10000.0, "ETH": 1.5}
-        return mock_balances.get(asset.upper(), 0.0)
+        try:
+            # fetch_free_balance renvoie le solde réellement disponible (non bloqué dans un ordre)
+            balance = self.client.fetch_free_balance()
+            return float(balance.get(asset.upper(), 0.0))
+        except Exception as e:
+            self._handle_error(e)
 
     def create_order(
         self,
@@ -80,40 +93,54 @@ class BinanceAdapter(Exchange):
         price: Optional[float] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Crée un ordre simulé (pas d'appel réel)."""
-        self._simulate_delay()
         if qty <= 0:
-            raise ExchangeError("Quantité invalide.")
-        order_id = str(random.randint(1000000, 9999999))
-        return {
-            "id": order_id,
-            "symbol": symbol,
-            "side": side.lower(),
-            "type": type.lower(),
-            "price": price or 0.0,
-            "qty": qty,
-            "status": "FILLED",
-            "timestamp": int(time.time() * 1000),
-        }
+            raise ExchangeError("Quantité invalide. Elle doit être supérieure à 0.")
+        
+        ccxt_symbol = self._format_symbol(symbol)
+        
+        try:
+            return self.client.create_order(
+                symbol=ccxt_symbol,
+                type=type.lower(),
+                side=side.lower(),
+                amount=qty,
+                price=price,
+                params=params or {}
+            )
+        except Exception as e:
+            self._handle_error(e)
 
     def cancel_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
-        self._simulate_delay()
-        return {"id": order_id, "symbol": symbol, "status": "CANCELED"}
+        ccxt_symbol = self._format_symbol(symbol)
+        try:
+            return self.client.cancel_order(order_id, ccxt_symbol)
+        except Exception as e:
+            self._handle_error(e)
 
     def fetch_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        self._simulate_delay()
-        return []  # aucun ordre ouvert dans mock
+        ccxt_symbol = self._format_symbol(symbol) if symbol else None
+        try:
+            return self.client.fetch_open_orders(ccxt_symbol)
+        except Exception as e:
+            self._handle_error(e)
 
     def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        self._simulate_delay()
-        return [{"symbol": "BTCUSDC", "positionAmt": 0.0, "entryPrice": 0.0}]
-
+        # En Spot, il n'y a pas de concept de "Position" au sens des Futures.
+        # On renvoie une liste vide pour respecter la signature de base.py
+        return []
 
 # --- test manuel ---
 if __name__ == "__main__":
-    ex = BinanceAdapter()
-    mkts = ex.load_markets()  # USDT-only par défaut (~200-250) ; passez quote_filter=None pour tout
-    print("✅ Markets:", list(mkts.keys())[:2])
-    print("✅ Balance BTC:", ex.get_balance("BTC"))
-    o = ex.create_order("BTCUSDC", "buy", "market", 0.001)
-    print("✅ Order:", o)
+    # Test basique sans clés API (mode public)
+    ex = BinanceAdapter(testnet=False)
+    
+    print("Chargement des marchés (filtré sur USDC)...")
+    mkts = ex.load_markets(quote_filter="USDC", max_markets=5)
+    print("✅ Marchés trouvés :", list(mkts.keys()))
+    
+    # Sans clés API, la balance va générer une AuthenticationError (ce qui est normal et prouve que la sécurité fonctionne)
+    try:
+        balance = ex.get_balance("USDC")
+        print("Balance:", balance)
+    except AuthenticationError as e:
+        print("✅ Sécurité confirmée (Authentification requise pour lire le solde) :", str(e))
