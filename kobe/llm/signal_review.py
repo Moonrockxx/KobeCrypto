@@ -66,19 +66,20 @@ def review_signal(
     proposal: Dict[str, Any],
     enabled: bool = True,
     max_tokens: int = 256,
+    fallback_decision: str = "skip"  # Sécurité : on rejette le trade par défaut en cas de panne
 ) -> Dict[str, Any]:
     """
     Couche referee optionnelle par DeepSeek.
 
     - Si enabled=False -> ne fait aucun appel réseau, renvoie un mode 'bypass'.
-    - Si budget ou API DeepSeek indisponible -> renvoie mode 'error' avec détails.
+    - Si budget ou API DeepSeek indisponible -> renvoie mode 'error' avec la decision de repli (fallback_decision).
     - Si succès -> renvoie:
       {
         "mode": "ok",
         "decision": "take|skip|adjust",
         "confidence": float,
         "comment": str,
-        "raw": {...}  # JSON brut DeepSeek
+        "raw": {...}
       }
     """
     if not enabled:
@@ -94,10 +95,9 @@ def review_signal(
     ok, resp = chat_complete_json(prompt, max_tokens=max_tokens, temperature=0.15)
 
     if not ok:
-        # resp contient déjà un dict d'erreur {"error": "...", ...}
         return {
             "mode": "error",
-            "decision": "take",  # Par défaut on ne bloque pas le trade,
+            "decision": fallback_decision,  # Utilisation du fallback sécurisé
             "confidence": 0.0,
             "comment": f"Referee DeepSeek indisponible: {resp.get('error')}",
             "raw": resp,
@@ -109,7 +109,7 @@ def review_signal(
     except Exception:
         return {
             "mode": "error",
-            "decision": "take",
+            "decision": fallback_decision,  # Utilisation du fallback sécurisé
             "confidence": 0.0,
             "comment": "Réponse DeepSeek non JSON ou invalide.",
             "raw": {"text": text},
@@ -117,7 +117,7 @@ def review_signal(
 
     decision = str(parsed.get("decision", "take")).lower().strip()
     if decision not in ("take", "skip", "adjust"):
-        decision = "take"
+        decision = fallback_decision # Sécurité additionnelle si l'IA hallucine une autre action
 
     try:
         confidence = float(parsed.get("confidence", 0.5))
