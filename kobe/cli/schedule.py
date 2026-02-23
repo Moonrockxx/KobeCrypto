@@ -1,4 +1,5 @@
 from __future__ import annotations
+from kobe.core.trailing_stop import process_trailing_stops
 # --- V4 fallback helpers (top-level, only if missing) ---
 try:
     send_message_v4
@@ -610,6 +611,13 @@ def main(argv=None):
         # Reporting quotidien si activé
         if daily_enabled:
             sched.add_job(lambda: run_report(notifier), trigger=CronTrigger(hour=_daily_hr, minute=_daily_min, timezone=UTC))
+
+        # Règle de sécurité Module 4 : Job Trailing Stop
+        sched.add_job(
+            process_trailing_stops, 
+            trigger=_I(minutes=1, timezone=UTC),
+            id="trailing_stop_job"
+        )
 
         print("⏱️ Scheduler lancé — fenêtre UTC:", enabled_hours_utc, f"(toutes les {interval_minutes} min)")
         sched.start()

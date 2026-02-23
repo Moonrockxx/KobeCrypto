@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os, hmac, time, hashlib, urllib.parse, urllib.request, urllib.error, json
 from decimal import Decimal, ROUND_DOWN
 
@@ -61,6 +62,28 @@ class BinanceSpot:
         req = urllib.request.Request(
             url,
             method="POST",
+            headers={"X-MBX-APIKEY": self.key}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return {"error": e.code, "message": e.read().decode("utf-8")}
+        except Exception as e:
+            return {"error": "exception", "message": str(e)}
+        
+    def _signed_delete(self, path, params=None, timeout=8):
+        """DELETE signé pour annuler des ordres (ex: annuler le Stop Loss existant)."""
+        if not self.key or not self.secret:
+            return None
+        params = dict(params or {})
+        params["timestamp"] = int(time.time() * 1000)
+        query = urllib.parse.urlencode(params)
+        sig = hmac.new(self.secret.encode(), query.encode(), hashlib.sha256).hexdigest()
+        url = f"{self.base}{path}?{query}&signature={sig}"
+        req = urllib.request.Request(
+            url,
+            method="DELETE",
             headers={"X-MBX-APIKEY": self.key}
         )
         try:
