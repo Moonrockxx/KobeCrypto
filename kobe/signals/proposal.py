@@ -51,17 +51,22 @@ class Proposal(BaseModel):
 
 def position_size(balance_usd: float, risk_pct: float, entry: float, stop: float, leverage: float = 1.0) -> float:
     """
-    Calcule une taille approximative (en coin/base) pour risquer `risk_pct` du capital.
-    Hypothèse produit linéaire: risk_amount = qty * |entry - stop|.
-    qty ≈ (balance * risk_pct/100) / |entry - stop| / entry * leverage
+    Calcule une taille (en coin/base) pour risquer `risk_pct` du capital.
+    qty = (balance * risk_pct/100) / |entry - stop| * leverage
     """
     if balance_usd <= 0 or entry <= 0 or stop <= 0:
         raise ValueError("Paramètres invalides pour le sizing.")
+    
     risk_amount = balance_usd * (risk_pct / 100.0)
     risk_per_unit = abs(entry - stop)
+    
     if risk_per_unit == 0:
         raise ValueError("entry et stop ne doivent pas être égaux.")
-    qty = (risk_amount / risk_per_unit) * leverage / entry
+        
+    # CORRECTION : On a retiré la division par 'entry' qui faussait le calcul.
+    # On arrondit à 4 décimales pour éviter les erreurs de précision de l'API.
+    qty = round((risk_amount / risk_per_unit) * leverage, 4)
+    
     return max(qty, 0.0)
 
 def format_proposal_for_telegram(p: Proposal, balance_usd: Optional[float] = None, leverage: float = 1.0) -> str:
